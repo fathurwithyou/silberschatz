@@ -1,3 +1,3 @@
-from .optimizer import BaseQueryOptimizer
+from .optimizer import IQueryOptimizer
 
-__all__ = ["BaseQueryOptimizer"]
+__all__ = ["IQueryOptimizer"]
