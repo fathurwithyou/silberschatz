@@ -1,4 +1,4 @@
 from .optimizer import IQueryOptimizer
-from .StorageManager import IStorageManager
+from .storage_manager import IStorageManager
 
 __all__ = ["IQueryOptimizer", "IStorageManager"]
