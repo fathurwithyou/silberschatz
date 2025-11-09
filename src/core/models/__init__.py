@@ -1,5 +1,6 @@
 from .action import Action
 from .query import ParsedQuery
+from .result import ExecutionResult, Rows
 from .storage import (
     # Enums
     DataType,
@@ -42,4 +43,8 @@ __all__ = [
     # DDL
     "ColumnDefinition",
     "TableSchema",
+
+    # Result
+    "ExecutionResult", 
+    "Rows",
 ]
