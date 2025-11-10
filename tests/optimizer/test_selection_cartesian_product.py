@@ -1,6 +1,6 @@
 import unittest
 from src.optimizer.rules.selection.cartesian_product import SelectionCartesianProductRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 
 class TestSelectionCartesianProductRule(unittest.TestCase):
     def setUp(self):
@@ -8,11 +8,11 @@ class TestSelectionCartesianProductRule(unittest.TestCase):
 
     def test_convert_cartesian_to_theta_join(self):
         # σ(A.x = B.y)(A × B)  to  A ⋈(A.x = B.y) B
-        left = QueryTree(type="TABLE", value="A", children=[], parent=None)
-        right = QueryTree(type="TABLE", value="B", children=[], parent=None)
+        left = QueryTree(type=QueryNodeType.TABLE, value="A", children=[], parent=None)
+        right = QueryTree(type=QueryNodeType.TABLE, value="B", children=[], parent=None)
 
-        cart = QueryTree(type="CARTESIAN_PRODUCT", value=None, children=[left, right], parent=None)
-        sel = QueryTree(type="SELECTION", value="A.x = B.y", children=[cart], parent=None)
+        cart = QueryTree(type=QueryNodeType.CARTESIAN_PRODUCT, value=None, children=[left, right], parent=None)
+        sel = QueryTree(type=QueryNodeType.SELECTION, value="A.x = B.y", children=[cart], parent=None)
 
         # set parent links as in a real tree
         left.parent = cart
@@ -23,12 +23,12 @@ class TestSelectionCartesianProductRule(unittest.TestCase):
         new_tree = self.rule.apply(sel)
 
         self.assertIsNotNone(new_tree)
-        self.assertEqual(new_tree.type, "THETA_JOIN")
+        self.assertEqual(new_tree.type, QueryNodeType.THETA_JOIN)
         self.assertEqual(new_tree.value, "A.x = B.y")
         self.assertEqual(len(new_tree.children), 2)
-        self.assertEqual(new_tree.children[0].type, "TABLE")
+        self.assertEqual(new_tree.children[0].type, QueryNodeType.TABLE)
         self.assertEqual(new_tree.children[0].value, "A")
-        self.assertEqual(new_tree.children[1].type, "TABLE")
+        self.assertEqual(new_tree.children[1].type, QueryNodeType.TABLE)
         self.assertEqual(new_tree.children[1].value, "B")
 
         # parent pointers updated
@@ -36,17 +36,17 @@ class TestSelectionCartesianProductRule(unittest.TestCase):
         self.assertIs(new_tree.children[1].parent, new_tree)
 
     def test_not_applicable_when_not_cartesian(self):
-        left = QueryTree(type="TABLE", value="A", children=[], parent=None)
-        join = QueryTree(type="JOIN", value=None, children=[left], parent=None)  # JOIN, bukan cartesian
-        sel = QueryTree(type="SELECTION", value="A.x = 1", children=[join], parent=None)
+        left = QueryTree(type=QueryNodeType.TABLE, value="A", children=[], parent=None)
+        join = QueryTree(type=QueryNodeType.JOIN, value=None, children=[left], parent=None)  # JOIN, bukan cartesian
+        sel = QueryTree(type=QueryNodeType.SELECTION, value="A.x = 1", children=[join], parent=None)
 
         self.assertFalse(self.rule.is_applicable(sel))
         self.assertIsNone(self.rule.apply(sel))
 
     def test_not_applicable_when_cartesian_has_less_than_two_children(self):
-        only_one = QueryTree(type="TABLE", value="A", children=[], parent=None)
-        cart = QueryTree(type="CARTESIAN_PRODUCT", value=None, children=[only_one], parent=None)
-        sel = QueryTree(type="SELECTION", value="A.x = 1", children=[cart], parent=None)
+        only_one = QueryTree(type=QueryNodeType.TABLE, value="A", children=[], parent=None)
+        cart = QueryTree(type=QueryNodeType.CARTESIAN_PRODUCT, value=None, children=[only_one], parent=None)
+        sel = QueryTree(type=QueryNodeType.SELECTION, value="A.x = 1", children=[cart], parent=None)
 
         self.assertTrue(self.rule.is_applicable(sel))
         self.assertIsNone(self.rule.apply(sel))
