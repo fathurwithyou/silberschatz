@@ -1,5 +1,5 @@
 from typing import Optional
-from optimizer.rules.base_rule import OptimizationRule
+from src.optimizer.rules.base_rule import OptimizationRule
 from src.core.models.query import QueryTree
 
 
