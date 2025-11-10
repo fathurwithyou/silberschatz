@@ -1,8 +1,8 @@
 from typing import Optional
 from src.core.models.query import QueryTree
+from ..base_rule import OptimizationRule
 
-
-class JoinAssociativityRule:
+class JoinAssociativityRule(OptimizationRule):
     def __init__(self, prefer_right_deep=True):
         self._prefer_right_deep = prefer_right_deep
 
