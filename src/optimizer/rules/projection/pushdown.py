@@ -1,5 +1,5 @@
 from typing import Optional, Iterable, List, Set, Tuple
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 from ..base_rule import OptimizationRule
 
 
@@ -8,7 +8,7 @@ class ProjectionPushdownRule(OptimizationRule):
         pass
 
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "projection":
+        if node.type != QueryNodeType.PROJECTION:
             return False
         return bool(node.children) and len(node.children) == 1
 
@@ -22,23 +22,23 @@ class ProjectionPushdownRule(OptimizationRule):
 
         child = node.children[0]
 
-        if child.type == "selection":
+        if child.type == QueryNodeType.SELECTION:
             predicate_cols = self._extract_cols(child.value)
             inner_cols = proj_cols | predicate_cols
             self._insert_projection_below(child, inner_cols)
             return node
 
-        if child.type == "order_by":
+        if child.type == QueryNodeType.ORDER_BY:
             order_cols = self._extract_order_by_cols(child.value)
             inner_cols = proj_cols | order_cols
             self._insert_projection_below(child, inner_cols)
             return node
 
-        if child.type == "limit":
+        if child.type == QueryNodeType.LIMIT:
             self._insert_projection_below(child, proj_cols)
             return node
 
-        if child.type in {"join", "natural_join", "cartesian_product"}:
+        if child.type in {QueryNodeType.JOIN, QueryNodeType.NATURAL_JOIN, QueryNodeType.CARTESIAN_PRODUCT}:
             if len(child.children) != 2:
                 return None
 
@@ -50,16 +50,16 @@ class ProjectionPushdownRule(OptimizationRule):
             join_cols_left: Set[str] = set()
             join_cols_right: Set[str] = set()
 
-            if child.type == "join":
+            if child.type == QueryNodeType.JOIN:
                 cond_cols = self._extract_cols(child.value)
                 jl, jr = self._split_cols_by_side(cond_cols, left_tables, right_tables)
                 join_cols_left |= jl
                 join_cols_right |= jr
 
-            elif child.type == "natural_join":
+            elif child.type == QueryNodeType.NATURAL_JOIN:
                 pass
 
-            elif child.type == "cartesian_product":
+            elif child.type == QueryNodeType.CARTESIAN_PRODUCT:
                 pass
 
             proj_left, proj_right = self._split_cols_by_side(proj_cols, left_tables, right_tables)
@@ -74,7 +74,7 @@ class ProjectionPushdownRule(OptimizationRule):
 
             return node
 
-        if child.type in {"table", "unknown"}:
+        if child.type in {QueryNodeType.TABLE, QueryNodeType.UNKNOWN}:
             self._insert_projection_below(node, proj_cols)
             return node
 
@@ -110,7 +110,7 @@ class ProjectionPushdownRule(OptimizationRule):
         """
         cols_list = sorted(set(cols))
         value = ",".join(cols_list) if cols_list else ""
-        proj = QueryTree(type="projection", value=value, children=[child], parent=None)
+        proj = QueryTree(type=QueryNodeType.PROJECTION, value=value, children=[child], parent=None)
         child.parent = proj
         return proj
 
@@ -184,7 +184,7 @@ class ProjectionPushdownRule(OptimizationRule):
         tables: Set[str] = set()
 
         def walk(n: QueryTree):
-            if n.type in {"table"}:
+            if n.type in {QueryNodeType.TABLE}:
                 if n.value:
                     parts = n.value.split()
 

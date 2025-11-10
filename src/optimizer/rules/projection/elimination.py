@@ -1,5 +1,5 @@
 from typing import Optional, Iterable, Set, Tuple
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 from ..base_rule import OptimizationRule
 
 
@@ -12,7 +12,7 @@ class ProjectionEliminationRule(OptimizationRule):
         return "ProjectionElimination"
 
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "projection":
+        if node.type != QueryNodeType.PROJECTION:
             return False
         if len(node.children) != 1:
             return False
@@ -24,7 +24,7 @@ class ProjectionEliminationRule(OptimizationRule):
 
         child = node.children[0]
 
-        if child.type != "projection" or not child.children:
+        if child.type != QueryNodeType.PROJECTION or not child.children:
             return None
 
         grand = child.children[0]
