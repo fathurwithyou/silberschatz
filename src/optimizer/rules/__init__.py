@@ -7,6 +7,13 @@ from .projection import (
     ProjectionEliminationRule,
     ProjectionPushdownRule
 )
+from .selection import (
+    SelectionCartesianProductRule,
+    SelectionCommutativityRule,
+    SelectionDecompositionRule,
+    SelectionJoinDistributionRule,
+    SelectionThetaJoinRule,
+)
 
 
 __all__ = [
@@ -14,5 +21,10 @@ __all__ = [
     'JoinCommutativityRule',
     'JoinAssociativityRule',
     'ProjectionEliminationRule',
-    'ProjectionPushdownRule'
+    'ProjectionPushdownRule',
+    'SelectionCartesianProductRule',
+    'SelectionCommutativityRule',
+    'SelectionDecompositionRule',
+    'SelectionJoinDistributionRule',
+    'SelectionThetaJoinRule',
 ]
