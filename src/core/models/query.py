@@ -1,6 +1,6 @@
 from typing import List
 from dataclasses import dataclass
-
+from enum import Enum
 
 @dataclass
 class QueryTree:
@@ -14,3 +14,32 @@ class QueryTree:
 class ParsedQuery:
     tree: QueryTree
     query: str
+
+class QueryNodeType(str, Enum):
+    # Base operations
+    TABLE = "table"
+    UNKNOWN = "unknown"
+
+    # SELECT operations
+    PROJECTION = "projection"
+    SELECTION = "selection"
+    ORDER_BY = "order_by"
+    LIMIT = "limit"
+
+    # JOIN operations
+    JOIN = "join"
+    NATURAL_JOIN = "natural_join"
+    CARTESIAN_PRODUCT = "cartesian_product"
+
+    # DML operations
+    UPDATE = "update"
+    DELETE = "delete"
+    INSERT = "insert"
+
+    # DDL operations
+    CREATE_TABLE = "create_table"
+    DROP_TABLE = "drop_table"
+
+    # Transaction operations
+    BEGIN_TRANSACTION = "begin_transaction"
+    COMMIT = "commit"
