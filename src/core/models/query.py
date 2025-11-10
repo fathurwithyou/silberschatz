@@ -28,6 +28,7 @@ class QueryNodeType(str, Enum):
 
     # JOIN operations
     JOIN = "join"
+    THETA_JOIN = "theta_join"
     NATURAL_JOIN = "natural_join"
     CARTESIAN_PRODUCT = "cartesian_product"
 
