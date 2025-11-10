@@ -1,6 +1,6 @@
 from typing import Optional
 from src.optimizer.rules.base_rule import OptimizationRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 
 # Rule 2: Operasi seleksi bersifat komutatif
 class SelectionCommutativityRule(OptimizationRule):
@@ -9,14 +9,14 @@ class SelectionCommutativityRule(OptimizationRule):
         return "SelectionCommutativity"
     
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "SELECTION":
+        if node.type != QueryNodeType.SELECTION:
             return False
-        
+
         if not node.children or len(node.children) == 0:
             return False
-        
+
         child = node.children[0]
-        return child.type == "SELECTION"
+        return child.type == QueryNodeType.SELECTION
     
     def apply(self, node: QueryTree) -> Optional[QueryTree]:
         # Reorder nested selections based on selectivity. More selective (lower estimated selectivity) conditions go first.
@@ -33,14 +33,14 @@ class SelectionCommutativityRule(OptimizationRule):
         if child_selectivity < parent_selectivity:
             # Create swapped structure
             new_inner = QueryTree(
-                type="SELECTION",
+                type=QueryNodeType.SELECTION,
                 value=node.value,
                 children=child.children.copy(),
                 parent=None
             )
-            
+
             new_outer = QueryTree(
-                type="SELECTION",
+                type=QueryNodeType.SELECTION,
                 value=child.value,
                 children=[new_inner],
                 parent=None

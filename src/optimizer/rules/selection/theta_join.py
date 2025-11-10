@@ -1,6 +1,6 @@
 from typing import Optional
 from src.optimizer.rules.base_rule import OptimizationRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 
 # Rule 4b: Operasi seleksi dapat digabungkan dengan theta join.
 class SelectionThetaJoinRule(OptimizationRule):
@@ -9,14 +9,14 @@ class SelectionThetaJoinRule(OptimizationRule):
         return "SelectionThetaJoin"
     
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "SELECTION":
+        if node.type != QueryNodeType.SELECTION:
             return False
-        
+
         if not node.children or len(node.children) == 0:
             return False
-        
+
         child = node.children[0]
-        return child.type in ["THETA_JOIN", "JOIN"]
+        return child.type in [QueryNodeType.THETA_JOIN, QueryNodeType.JOIN]
     
     def apply(self, node: QueryTree) -> Optional[QueryTree]:
         if not self.is_applicable(node):

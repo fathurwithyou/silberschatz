@@ -1,6 +1,6 @@
 from typing import Optional
 from src.optimizer.rules.base_rule import OptimizationRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 
 # Rule 4a: Operasi seleksi dapat digabungkan dengan hasil Cartesian product.
 class SelectionCartesianProductRule(OptimizationRule):
@@ -9,14 +9,14 @@ class SelectionCartesianProductRule(OptimizationRule):
         return "SelectionCartesianProduct"
     
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "SELECTION":
+        if node.type != QueryNodeType.SELECTION:
             return False
-        
+
         if not node.children or len(node.children) == 0:
             return False
-        
+
         child = node.children[0]
-        return child.type in ["CARTESIAN_PRODUCT", "CROSS_JOIN", "CARTESIAN"]
+        return child.type in [QueryNodeType.CARTESIAN_PRODUCT, "CROSS_JOIN", "CARTESIAN"]
     
     def apply(self, node: QueryTree) -> Optional[QueryTree]:
         if not self.is_applicable(node):
@@ -29,7 +29,7 @@ class SelectionCartesianProductRule(OptimizationRule):
         
         # Create theta join with the selection condition
         theta_join = QueryTree(
-            type="THETA_JOIN",
+            type=QueryNodeType.THETA_JOIN,
             value=node.value,  # Selection condition becomes join condition
             children=cartesian_node.children.copy(),
             parent=None

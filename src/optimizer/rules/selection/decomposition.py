@@ -1,6 +1,6 @@
 from typing import Optional, List
 from src.optimizer.rules.base_rule import OptimizationRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 
 # Rule 1: Operasi seleksi konjungtif dapat diuraikan menjadi urutan seleksi.
 class SelectionDecompositionRule(OptimizationRule):
@@ -9,7 +9,7 @@ class SelectionDecompositionRule(OptimizationRule):
         return "SelectionDecomposition"
     
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "SELECTION":
+        if node.type != QueryNodeType.SELECTION:
             return False
         
         if node.value and ' AND ' in node.value.upper():
@@ -37,7 +37,7 @@ class SelectionDecompositionRule(OptimizationRule):
         # Create nested selections from bottom up
         for condition in reversed(conditions):
             new_selection = QueryTree(
-                type="SELECTION",
+                type=QueryNodeType.SELECTION,
                 value=condition.strip(),
                 children=[current_tree],
                 parent=None

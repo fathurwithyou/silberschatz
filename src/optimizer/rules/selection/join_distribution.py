@@ -1,6 +1,6 @@
 from typing import Optional, List, Set
 from src.optimizer.rules.base_rule import OptimizationRule
-from src.core.models.query import QueryTree
+from src.core.models.query import QueryTree, QueryNodeType
 from src.core import IStorageManager
 
 # Rule 7: Operasi seleksi dapat terdistribusi terhadap operasi theta join
@@ -13,14 +13,14 @@ class SelectionJoinDistributionRule(OptimizationRule):
         return "SelectionJoinDistribution"
     
     def is_applicable(self, node: QueryTree) -> bool:
-        if node.type != "SELECTION":
+        if node.type != QueryNodeType.SELECTION:
             return False
-        
+
         if not node.children or len(node.children) == 0:
             return False
-        
+
         child = node.children[0]
-        return child.type in ["JOIN", "THETA_JOIN", "NATURAL_JOIN", "INNER_JOIN"]
+        return child.type in [QueryNodeType.JOIN, QueryNodeType.THETA_JOIN, QueryNodeType.NATURAL_JOIN, "INNER_JOIN"]
     
     def apply(self, node: QueryTree) -> Optional[QueryTree]:
         if not self.is_applicable(node):
@@ -98,7 +98,7 @@ class SelectionJoinDistributionRule(OptimizationRule):
         if both_conditions:
             combined_condition = ' AND '.join(both_conditions)
             result = QueryTree(
-                type="SELECTION",
+                type=QueryNodeType.SELECTION,
                 value=combined_condition,
                 children=[new_join],
                 parent=None
@@ -115,8 +115,8 @@ class SelectionJoinDistributionRule(OptimizationRule):
     
     def _get_table_names(self, node: QueryTree) -> Set[str]:
         tables = set()
-        
-        if node.type in ["TABLE_SCAN", "TABLE", "SCAN"]:
+
+        if node.type in ["TABLE_SCAN", QueryNodeType.TABLE, "SCAN"]:
             if node.value:
                 # Value might be "table_name" or "table_name AS alias"
                 parts = node.value.split()
@@ -194,11 +194,11 @@ class SelectionJoinDistributionRule(OptimizationRule):
     def _apply_selections(self, node: QueryTree, conditions: List[str]) -> QueryTree:
         if not conditions:
             return node
-        
+
         current = node
         for condition in conditions:
             new_selection = QueryTree(
-                type="SELECTION",
+                type=QueryNodeType.SELECTION,
                 value=condition,
                 children=[current],
                 parent=None
