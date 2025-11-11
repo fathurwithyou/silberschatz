@@ -1,0 +1,66 @@
+from typing import Optional
+from src.core.models.query import QueryTree
+
+
+class JoinAssociativityRule:
+    def __init__(self, prefer_right_deep=True):
+        self._prefer_right_deep = prefer_right_deep
+
+    def apply(self, node: QueryTree) -> Optional[QueryTree]:
+        if not self.is_applicable(node):
+            return None
+        return self._to_right_deep(node) if self._prefer_right_deep else self._to_left_deep(node)
+
+    def _to_right_deep(self, node: QueryTree) -> Optional[QueryTree]:
+        left_child, right_child = node.children[0], node.children[1]
+        if left_child.type != 'join':
+            return None
+
+        e1, e2, e3 = left_child.children[0], left_child.children[1], right_child
+        combined_condition = self._combine_conditions(left_child.value, node.value)
+
+        new_right_join = QueryTree(type='join', value=node.value, children=[e2, e3], parent=None)
+        e2.parent = e3.parent = new_right_join
+
+        new_root = QueryTree(type='join', value=combined_condition, children=[e1, new_right_join], parent=node.parent)
+        e1.parent = new_right_join.parent = new_root
+
+        return new_root
+
+    def _to_left_deep(self, node: QueryTree) -> Optional[QueryTree]:
+        left_child, right_child = node.children[0], node.children[1]
+        if right_child.type != 'join':
+            return None
+
+        e1, e2, e3 = left_child, right_child.children[0], right_child.children[1]
+        combined_condition = self._combine_conditions(node.value, right_child.value)
+
+        new_left_join = QueryTree(type='join', value=node.value, children=[e1, e2], parent=None)
+        e1.parent = e2.parent = new_left_join
+
+        new_root = QueryTree(type='join', value=combined_condition, children=[new_left_join, e3], parent=node.parent)
+        new_left_join.parent = e3.parent = new_root
+
+        return new_root
+
+    def _combine_conditions(self, cond1: str, cond2: str) -> str:
+        if not cond1 and not cond2:
+            return ""
+        if not cond1:
+            return cond2
+        if not cond2:
+            return cond1
+        return f"({cond1}) AND ({cond2})"
+
+    def is_applicable(self, node: QueryTree) -> bool:
+        if node.type != 'join' or len(node.children) != 2:
+            return False
+
+        left_is_join = node.children[0].type == 'join'
+        right_is_join = node.children[1].type == 'join'
+
+        return left_is_join if self._prefer_right_deep else right_is_join
+
+    @property
+    def name(self) -> str:
+        return "JoinAssociativity"
