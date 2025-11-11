@@ -1,8 +1,9 @@
 from typing import Optional
+from src.optimizer.rules.base_rule import OptimizationRule
 from src.core.models.query import QueryTree
 
 
-class JoinCommutativityRule:
+class JoinCommutativityRule(OptimizationRule):
     def __init__(self, should_swap_fn=None):
         self._should_swap = should_swap_fn or (lambda l, r: True)
 
@@ -14,7 +15,8 @@ class JoinCommutativityRule:
         if not self._should_swap(left_child, right_child):
             return None
 
-        new_node = QueryTree(type=node.type, value=node.value, children=[right_child, left_child], parent=node.parent)
+        new_node = QueryTree(type=node.type, value=node.value, children=[
+                             right_child, left_child], parent=node.parent)
         right_child.parent = left_child.parent = new_node
 
         return new_node
