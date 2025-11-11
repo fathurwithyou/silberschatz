@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from .models import (
     DataRetrieval, DataWrite, DataDeletion,
-    Statistic, TableSchema, Row
+    Statistic, TableSchema, Rows
 )
 
 class IStorageManager(ABC):
@@ -12,13 +12,13 @@ class IStorageManager(ABC):
     # ============================================
     
     @abstractmethod
-    def read_block(self, data_retrieval: DataRetrieval) -> List[Row]:
+    def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         """
         Membaca data dari storage
         Args:
             data_retrieval: Spesifikasi data yang diminta
         Returns:
-            List of rows yang match dengan criteria
+            rows yang match dengan criteria
         """
         raise NotImplementedError
     
@@ -45,7 +45,7 @@ class IStorageManager(ABC):
         raise NotImplementedError
     
     # ============================================
-    # Statistics (untuk Integrasi Query Optimizer)
+    # Statistics
     # ============================================
     
     @abstractmethod
@@ -85,7 +85,7 @@ class IStorageManager(ABC):
         raise NotImplementedError
     
     # ============================================
-    # DDL Operations (Bonus)
+    # DDL Operations
     # ============================================
     
     @abstractmethod
