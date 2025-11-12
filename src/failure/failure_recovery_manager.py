@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Any, Dict, Optional
+from typing import Any , Dict , Optional
 from pathlib import Path
-import json
-import time
+import json , time
 
-from src.core.failure_recovery import IFailureRecoveryManager, RecoverCriteria
+from core.failure_recovery_manager import IFailureRecoveryManager
+from src.core.models.recover_criteria import RecoverCriteria
 
-class FailureRecoveryManager(IFailureRecoveryManager):
+class FailureRecoveryManager(IFailureRecoveryManager) :
     """
     inisialisasi path, meta sidecar, buffer config, dan hook query_processor.
     """
