@@ -1,8 +1,10 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from src.core.models import ParsedQuery
 from src.core.models.query import QueryTree
+from src.core.models.storage import Statistic
 from src.core.optimizer import IQueryOptimizer
 from .parser import QueryParser
+from .cost.cost_model import CostModel
 from .rules import (
     JoinCommutativityRule,
     JoinAssociativityRule,
@@ -20,7 +22,7 @@ class QueryOptimizer(IQueryOptimizer):
 
     def __init__(self,
                  rules: Optional[List] = None,
-                 cost_calculator=None,
+                 statistics: Optional[Dict[str, Statistic]] = None,
                  max_iterations: int = 10):
 
         # Use default rules if none provided
@@ -30,7 +32,11 @@ class QueryOptimizer(IQueryOptimizer):
         self._rules = rules
         self._max_iterations = max_iterations
         self._parser = QueryParser()
-        self._cost_calculator = cost_calculator
+
+        if statistics is not None:
+            self._cost_model = CostModel(statistics)
+        else:
+            self._cost_model = None
 
     def _get_default_rules(self) -> List:
 
@@ -66,10 +72,10 @@ class QueryOptimizer(IQueryOptimizer):
 
         return ParsedQuery(tree=current_tree, query=query.query)
 
-    def get_cost(self, query: ParsedQuery) -> int:
-        if self._cost_calculator is None:
-            raise NotImplementedError()
-        return self._cost_calculator(query)
+    def get_cost(self, query: ParsedQuery) -> float:
+        if self._cost_model is None:
+            raise NotImplementedError("Cost model not initialized. Provide statistics to constructor.")
+        return self._cost_model.get_cost(query.tree)
 
     def _apply_rules_once(self, tree: QueryTree) -> QueryTree:
         optimized_children = []
