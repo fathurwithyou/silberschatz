@@ -1,6 +1,6 @@
 import struct
 from typing import Dict, Any, List
-from src.core.models import DataType, ColumnDefinition, TableSchema, Rows
+from src.core.models import DataType, ColumnDefinition, TableSchema, Rows, ForeignKeyConstraint, ForeignKeyAction
 
 class Serializer:
     def __init__(self):
@@ -157,3 +157,145 @@ class Serializer:
         byte_idx = column_index // 8
         bit_idx = column_index % 8
         return byte_idx < len(null_bitmap) and (null_bitmap[byte_idx] & (1 << bit_idx)) != 0
+    
+    def serialize_schema(self, schema: TableSchema) -> bytes:
+        parts = []
+        
+        table_name_bytes = schema.table_name.encode('utf-8')
+        parts.append(struct.pack('H', len(table_name_bytes)))
+        parts.append(table_name_bytes)
+        
+        parts.append(struct.pack('H', len(schema.columns)))
+        
+        for column in schema.columns:
+            col_name_bytes = column.name.encode('utf-8')
+            parts.append(struct.pack('H', len(col_name_bytes)))
+            parts.append(col_name_bytes)
+            
+            data_type_bytes = column.data_type.value.encode('utf-8')
+            parts.append(struct.pack('H', len(data_type_bytes)))
+            parts.append(data_type_bytes)
+            
+            parts.append(struct.pack('I', column.max_length or 0))
+            parts.append(struct.pack('?', column.nullable))
+            parts.append(struct.pack('?', column.primary_key))
+            
+            if column.foreign_key:
+                parts.append(struct.pack('?', True))
+                
+                ref_table_bytes = column.foreign_key.referenced_table.encode('utf-8')
+                parts.append(struct.pack('H', len(ref_table_bytes)))
+                parts.append(ref_table_bytes)
+                
+                ref_col_bytes = column.foreign_key.referenced_column.encode('utf-8')
+                parts.append(struct.pack('H', len(ref_col_bytes)))
+                parts.append(ref_col_bytes)
+                
+                on_delete_bytes = column.foreign_key.on_delete.value.encode('utf-8')
+                parts.append(struct.pack('H', len(on_delete_bytes)))
+                parts.append(on_delete_bytes)
+                
+                on_update_bytes = column.foreign_key.on_update.value.encode('utf-8')
+                parts.append(struct.pack('H', len(on_update_bytes)))
+                parts.append(on_update_bytes)
+            else:
+                parts.append(struct.pack('?', False))
+        
+        if schema.primary_key:
+            pk_bytes = schema.primary_key.encode('utf-8')
+            parts.append(struct.pack('H', len(pk_bytes)))
+            parts.append(pk_bytes)
+        else:
+            parts.append(struct.pack('H', 0))
+        
+        return b''.join(parts)
+    
+    def deserialize_schema(self, data: bytes) -> TableSchema:
+        offset = 0
+        
+        table_name_len = struct.unpack('H', data[offset:offset + 2])[0]
+        offset += 2
+        table_name = data[offset:offset + table_name_len].decode('utf-8')
+        offset += table_name_len
+        
+        num_columns = struct.unpack('H', data[offset:offset + 2])[0]
+        offset += 2
+        
+        columns = []
+        for _ in range(num_columns):
+            col_name_len = struct.unpack('H', data[offset:offset + 2])[0]
+            offset += 2
+            col_name = data[offset:offset + col_name_len].decode('utf-8')
+            offset += col_name_len
+            
+            data_type_len = struct.unpack('H', data[offset:offset + 2])[0]
+            offset += 2
+            data_type_str = data[offset:offset + data_type_len].decode('utf-8')
+            offset += data_type_len
+            data_type = DataType(data_type_str)
+            
+            max_length = struct.unpack('I', data[offset:offset + 4])[0]
+            offset += 4
+            max_length = max_length if max_length > 0 else None
+            
+            nullable = struct.unpack('?', data[offset:offset + 1])[0]
+            offset += 1
+            
+            primary_key = struct.unpack('?', data[offset:offset + 1])[0]
+            offset += 1
+            
+            has_fk = struct.unpack('?', data[offset:offset + 1])[0]
+            offset += 1
+            
+            foreign_key = None
+            if has_fk:
+                ref_table_len = struct.unpack('H', data[offset:offset + 2])[0]
+                offset += 2
+                ref_table = data[offset:offset + ref_table_len].decode('utf-8')
+                offset += ref_table_len
+                
+                ref_col_len = struct.unpack('H', data[offset:offset + 2])[0]
+                offset += 2
+                ref_col = data[offset:offset + ref_col_len].decode('utf-8')
+                offset += ref_col_len
+                
+                on_delete_len = struct.unpack('H', data[offset:offset + 2])[0]
+                offset += 2
+                on_delete_str = data[offset:offset + on_delete_len].decode('utf-8')
+                offset += on_delete_len
+                on_delete = ForeignKeyAction(on_delete_str)
+                
+                on_update_len = struct.unpack('H', data[offset:offset + 2])[0]
+                offset += 2
+                on_update_str = data[offset:offset + on_update_len].decode('utf-8')
+                offset += on_update_len
+                on_update = ForeignKeyAction(on_update_str)
+                
+                foreign_key = ForeignKeyConstraint(
+                    referenced_table=ref_table,
+                    referenced_column=ref_col,
+                    on_delete=on_delete,
+                    on_update=on_update
+                )
+            
+            columns.append(ColumnDefinition(
+                name=col_name,
+                data_type=data_type,
+                max_length=max_length,
+                nullable=nullable,
+                primary_key=primary_key,
+                foreign_key=foreign_key
+            ))
+        
+        pk_len = struct.unpack('H', data[offset:offset + 2])[0]
+        offset += 2
+        primary_key = None
+        if pk_len > 0:
+            primary_key = data[offset:offset + pk_len].decode('utf-8')
+            offset += pk_len
+        
+        return TableSchema(
+            table_name=table_name,
+            columns=columns,
+            primary_key=primary_key
+        )

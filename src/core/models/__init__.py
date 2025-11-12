@@ -19,6 +19,8 @@ from .storage import (
     # DDL
     ColumnDefinition,
     TableSchema,
+    ForeignKeyConstraint,
+    ForeignKeyAction,
 )
 
 __all__ = [
@@ -43,6 +45,8 @@ __all__ = [
     # DDL
     "ColumnDefinition",
     "TableSchema",
+    "ForeignKeyConstraint",
+    "ForeignKeyAction",
 
     # Result
     "ExecutionResult", 
