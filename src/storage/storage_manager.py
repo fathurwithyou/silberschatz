@@ -9,14 +9,14 @@ from src.core.models import (
     TableSchema, 
     Rows
 )
-from src.storage.file_manager import FileManager
+from src.storage.ddl import DDLManager
 
 
 class StorageManager(IStorageManager):
     
     def __init__(self, data_directory: str = "data"):
         self.data_directory = data_directory
-        self.file_manager = FileManager(f"src/{self.data_directory}")
+        self.ddl_manager = DDLManager(f"src/{self.data_directory}")
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         pass
@@ -40,23 +40,23 @@ class StorageManager(IStorageManager):
         pass
     
     def create_table(self, schema: TableSchema) -> None:
-        if self.file_manager.schema_exists(schema.table_name):
+        if self.ddl_manager.schema_exists(schema.table_name):
             raise ValueError(f"Table '{schema.table_name}' already exists")
-        
-        self.file_manager.validate_schema(schema)
-        
-        self.file_manager.save_schema(schema)
-        self.file_manager.create_table_file(schema.table_name)
-    
+
+        self.ddl_manager.validate_schema(schema)
+
+        self.ddl_manager.save_schema(schema)
+        self.ddl_manager.create_table_file(schema.table_name)
+
     def drop_table(self, table_name: str) -> None:
-        if not self.file_manager.schema_exists(table_name):
+        if not self.ddl_manager.schema_exists(table_name):
             raise ValueError(f"Table '{table_name}' does not exist")
-        
-        self.file_manager.delete_schema(table_name)
-        self.file_manager.delete_table_file(table_name)
-    
+
+        self.ddl_manager.delete_schema(table_name)
+        self.ddl_manager.delete_table_file(table_name)
+
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        return self.file_manager.load_schema(table_name)
-    
+        return self.ddl_manager.load_schema(table_name)
+
     def list_tables(self) -> List[str]:
-        return self.file_manager.list_schema_files()
+        return self.ddl_manager.list_schema_files()

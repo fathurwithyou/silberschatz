@@ -4,7 +4,7 @@ from src.core.models import TableSchema
 from src.storage.serializer import Serializer
 
 
-class FileManager:
+class DDLManager:
     
     def __init__(self, data_directory: str = "data"):
         self.data_directory = data_directory
