@@ -27,6 +27,13 @@ class ComparisonOperator(Enum):
     GT = ">"
     GE = ">="
 
+class ForeignKeyAction(Enum):
+    CASCADE = "cascade"
+    RESTRICT = "restrict"
+    SET_NULL = "set_null"
+    NO_ACTION = "no_action"
+
+
 # ============================================
 # Data Models untuk DML
 # ============================================
@@ -106,6 +113,13 @@ class Statistic:
 # ============================================
 
 @dataclass
+class ForeignKeyConstraint:
+    referenced_table: str
+    referenced_column: str
+    on_delete: ForeignKeyAction = ForeignKeyAction.RESTRICT
+    on_update: ForeignKeyAction = ForeignKeyAction.RESTRICT
+
+@dataclass
 class ColumnDefinition:
     """Column definition untuk CREATE TABLE"""
     name: str
@@ -113,6 +127,7 @@ class ColumnDefinition:
     max_length: Optional[int] = None  # Untuk CHAR/VARCHAR
     nullable: bool = True
     primary_key: bool = False
+    foreign_key: Optional[ForeignKeyConstraint] = None
 
 
 @dataclass
