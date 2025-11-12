@@ -464,8 +464,6 @@ def test_schema_multiple_foreign_keys():
 
 def main():
     print_section("SERIALIZER DRIVER PROGRAM")
-    print("Tugas Besar SBD 2025 - Storage Manager")
-    
     tests = [
         ("Single Row Basic", test_single_row_basic),
         ("Single Row with NULL", test_single_row_with_null),
