@@ -1,6 +1,7 @@
 from .action import Action
 from .query import ParsedQuery
 from .result import ExecutionResult, Rows
+from .failure import LogRecordType, LogRecord, RecoverCriteria
 from .storage import (
     # Enums
     DataType,
@@ -51,4 +52,9 @@ __all__ = [
     # Result
     "ExecutionResult", 
     "Rows",
+
+    # Failure Recover
+    "LogRecordType",
+    "LogRecord",
+    "RecoverCriteria"
 ]
