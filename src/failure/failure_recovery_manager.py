@@ -1,10 +1,9 @@
 from __future__ import annotations
-from typing import Any , Dict , Optional
+from typing import Any , Dict, List , Optional
 from pathlib import Path
 import json , time
-
 from core.failure_recovery_manager import IFailureRecoveryManager
-from src.core.models.recover_criteria import RecoverCriteria
+from core.models.failure import LogRecord, LogRecordType, RecoverCriteria
 
 class FailureRecoveryManager(IFailureRecoveryManager) :
     """
@@ -31,6 +30,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         # Konfigurasi runtime
         self._buffer_max = max(int(buffer_max), 1)
         self._buffer_size = 0  
+        self.buffer: List[LogRecord] = []
 
     # helper meta sidecar
     def _read_meta(self) -> Dict[str, Any]:
@@ -44,9 +44,25 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
+    def _flush_buffer_to_disk(self):
+        if not self.buffer:
+            return
+        with self.log_path.open("a", encoding="utf-8") as f:
+            for record in self.buffer:
+                log_entry = record.to_dict()
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        self.buffer.clear()
+
     # TODO
-    def write_log(self, *args, **kwargs):
-        pass
+    def write_log(self, info: LogRecord):
+        if info:
+            self.buffer.append(info)
+            self._buffer_size += 1
+
+        if (self._buffer_size >= self._buffer_max or (info and info.log_type in [LogRecordType.COMMIT, LogRecordType.ABORT])):
+            self._flush_buffer_to_disk()
+            self._buffer_size = 0
+
 
     def save_checkpoint(self, *args, **kwargs):
         pass

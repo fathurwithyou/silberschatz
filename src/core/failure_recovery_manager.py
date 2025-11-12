@@ -1,10 +1,10 @@
 from __future__ import annotations
 from abc import ABC , abstractmethod
-from .models import ExecutionResult , RecoverCriteria
+from .models import LogRecord, RecoverCriteria
 
 class IFailureRecoveryManager(ABC) :
     @abstractmethod
-    def write_log(self , info : ExecutionResult) -> None :
+    def write_log(self , info : LogRecord) -> None :
         """Append satu entry ke write-ahead log."""
         raise NotImplementedError
 

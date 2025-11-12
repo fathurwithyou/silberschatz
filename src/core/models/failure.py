@@ -1,5 +1,41 @@
-from typing import Any , Literal
+from enum import Enum, auto
+from typing import Any, Dict, List , Literal
+from typing import Union
 
+class LogRecordType(Enum):
+    START = auto() # Begin Transaction
+    COMMIT = auto() 
+    ABORT = auto()
+    CHANGE = auto() # Update, Insert, Delete, Create/Drop Table
+    CHECKPOINT = auto()
+
+class LogRecord:
+    def __init__(
+        self,
+        log_type: LogRecordType,
+        transaction_id: int,
+        item_name: Union[str, None],
+        old_value: Union[Any, None],
+        new_value: Union[Any, None],
+        active_transactions: Union[List[int], None]
+    ):
+        self.log_type = log_type
+        self.transaction_id = transaction_id
+        self.item_name = item_name
+        self.old_value = old_value
+        self.new_value = new_value
+        self.active_transactions = active_transactions
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "log_type": self.log_type.name,
+            "transaction_id": self.transaction_id,
+            "item_name": self.item_name,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
+            "active_transactions": self.active_transactions
+        }
+    
 class RecoverCriteria :
     """
     - timestamp (undo semua entry dengan ts >= cutoff)
