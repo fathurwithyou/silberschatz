@@ -8,7 +8,9 @@ from src.core.models import (
     TableSchema, 
     ColumnDefinition, 
     DataType, 
-    Rows
+    Rows,
+    ForeignKeyConstraint,
+    ForeignKeyAction
 )
 
 
@@ -39,7 +41,6 @@ def test_single_row_basic():
     
     serializer = Serializer()
     
-    # Test data
     row = {
         "id": 1,
         "name": "Alice Johnson",
@@ -47,7 +48,6 @@ def test_single_row_basic():
         "salary": 75000.50
     }
     
-    # Serialize
     serialized = serializer.serialize_row(row, schema)
     print(f"Original:     {row}")
     print(f"Serialized:   {len(serialized)} bytes")
@@ -149,7 +149,6 @@ def test_rows_object():
     
     serializer = Serializer()
     
-    # Create Rows object
     rows = Rows(
         data=[
             {"student_id": 1, "name": "Alice", "gpa": 3.8},
@@ -326,6 +325,143 @@ def test_all_data_types():
     return match
 
 
+def test_schema_basic():
+    print_test("TEST 9: Schema Serialization - Basic")
+    
+    schema = TableSchema(
+        table_name="employees",
+        columns=[
+            ColumnDefinition(name="id", data_type=DataType.INTEGER, primary_key=True),
+            ColumnDefinition(name="name", data_type=DataType.VARCHAR, max_length=50),
+            ColumnDefinition(name="salary", data_type=DataType.FLOAT),
+        ],
+        primary_key="id"
+    )
+    
+    serializer = Serializer()
+    
+    print(f"Original schema: {schema.table_name}")
+    print(f"Columns: {len(schema.columns)}")
+    
+    serialized = serializer.serialize_schema(schema)
+    print(f"Serialized: {len(serialized)} bytes")
+    
+    deserialized = serializer.deserialize_schema(serialized)
+    print(f"Deserialized schema: {deserialized.table_name}")
+    print(f"Columns: {len(deserialized.columns)}")
+    
+    match = (schema.table_name == deserialized.table_name and
+             len(schema.columns) == len(deserialized.columns) and
+             schema.primary_key == deserialized.primary_key)
+    
+    print(f"Result: {'PASS' if match else 'FAIL'}")
+    return match
+
+
+def test_schema_with_foreign_key():
+    print_test("TEST 10: Schema Serialization - With Foreign Key")
+    
+    schema = TableSchema(
+        table_name="orders",
+        columns=[
+            ColumnDefinition(name="order_id", data_type=DataType.INTEGER, primary_key=True),
+            ColumnDefinition(
+                name="customer_id",
+                data_type=DataType.INTEGER,
+                foreign_key=ForeignKeyConstraint(
+                    referenced_table="customers",
+                    referenced_column="id",
+                    on_delete=ForeignKeyAction.CASCADE,
+                    on_update=ForeignKeyAction.CASCADE
+                )
+            ),
+            ColumnDefinition(name="amount", data_type=DataType.FLOAT),
+        ],
+        primary_key="order_id"
+    )
+    
+    serializer = Serializer()
+    
+    print(f"Original schema: {schema.table_name}")
+    fk = schema.columns[1].foreign_key
+    print(f"Has FK: {fk is not None}")
+    if fk:
+        print(f"FK refs: {fk.referenced_table}.{fk.referenced_column}")
+        print(f"ON DELETE: {fk.on_delete.value}")
+        print(f"ON UPDATE: {fk.on_update.value}")
+    
+    serialized = serializer.serialize_schema(schema)
+    print(f"Serialized: {len(serialized)} bytes")
+    
+    deserialized = serializer.deserialize_schema(serialized)
+    print(f"Deserialized schema: {deserialized.table_name}")
+    
+    des_fk = deserialized.columns[1].foreign_key
+    print(f"Has FK: {des_fk is not None}")
+    if des_fk:
+        print(f"FK refs: {des_fk.referenced_table}.{des_fk.referenced_column}")
+        print(f"ON DELETE: {des_fk.on_delete.value}")
+        print(f"ON UPDATE: {des_fk.on_update.value}")
+    
+    match = (schema.table_name == deserialized.table_name and
+             fk.referenced_table == des_fk.referenced_table and
+             fk.referenced_column == des_fk.referenced_column and
+             fk.on_delete == des_fk.on_delete and
+             fk.on_update == des_fk.on_update)
+    
+    print(f"Result: {'PASS' if match else 'FAIL'}")
+    return match
+
+
+def test_schema_multiple_foreign_keys():
+    print_test("TEST 11: Schema Serialization - Multiple Foreign Keys")
+    
+    schema = TableSchema(
+        table_name="order_items",
+        columns=[
+            ColumnDefinition(name="id", data_type=DataType.INTEGER, primary_key=True),
+            ColumnDefinition(
+                name="order_id",
+                data_type=DataType.INTEGER,
+                foreign_key=ForeignKeyConstraint(
+                    referenced_table="orders",
+                    referenced_column="order_id",
+                    on_delete=ForeignKeyAction.CASCADE,
+                    on_update=ForeignKeyAction.RESTRICT
+                )
+            ),
+            ColumnDefinition(
+                name="product_id",
+                data_type=DataType.INTEGER,
+                foreign_key=ForeignKeyConstraint(
+                    referenced_table="products",
+                    referenced_column="product_id",
+                    on_delete=ForeignKeyAction.RESTRICT,
+                    on_update=ForeignKeyAction.CASCADE
+                )
+            ),
+        ],
+        primary_key="id"
+    )
+    
+    serializer = Serializer()
+    
+    fk_count_orig = sum(1 for col in schema.columns if col.foreign_key is not None)
+    print(f"Original FKs: {fk_count_orig}")
+    
+    serialized = serializer.serialize_schema(schema)
+    print(f"Serialized: {len(serialized)} bytes")
+    
+    deserialized = serializer.deserialize_schema(serialized)
+    fk_count_des = sum(1 for col in deserialized.columns if col.foreign_key is not None)
+    print(f"Deserialized FKs: {fk_count_des}")
+    
+    match = fk_count_orig == fk_count_des == 2
+    
+    print(f"Result: {'PASS' if match else 'FAIL'}")
+    return match
+
+
 def main():
     print_section("SERIALIZER DRIVER PROGRAM")
     print("Tugas Besar SBD 2025 - Storage Manager")
@@ -339,6 +475,9 @@ def main():
         ("Row Size Calculation", test_row_size_calculation),
         ("Empty Rows", test_empty_rows),
         ("All Data Types", test_all_data_types),
+        ("Schema Basic", test_schema_basic),
+        ("Schema with Foreign Key", test_schema_with_foreign_key),
+        ("Schema Multiple Foreign Keys", test_schema_multiple_foreign_keys),
     ]
     
     results = []
