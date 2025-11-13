@@ -21,22 +21,30 @@ def read_transactions(input: str) -> Transaction:
             parts = line.split(',')
             
             if len(parts) == 3:
-                rid, tid, action = parts
+                action, tid, rid = parts
                 if int(tid) not in transaction_dict.operations:
                     transaction_dict.operations[int(tid)] = []
-                else:
-                    transaction_dict.operations[int(tid)].append(Operation(rid=int(rid), action=action))
+
+                transaction_dict.operations[int(tid)].append(Operation(rid=int(rid), action=action))
             else:
-                tid, action = parts
+                action, tid = parts
                 if int(tid) not in transaction_dict.operations:
                     transaction_dict.operations[int(tid)] = []
-                else:
-                    transaction_dict.operations[int(tid)].append(Operation(action=action))
+
+                transaction_dict.operations[int(tid)].append(Operation(action=action))
 
     return transaction_dict
 
+def print_transactions(transaction: Transaction):
+    for tid, ops in transaction.operations.items():
+        print(f"Transaction ID: {tid}")
+        for op in ops:
+            if op.rid is not None:
+                print(f"  Operation: {op.action} on RID {op.rid}")
+            else:
+                print(f"  Operation: {op.action}")
+
 def serve():
-    print("Server is running...")
     host: str = '127.0.0.1'
     port: int = 5000
 
@@ -63,7 +71,8 @@ def serve():
         print(f"Received data: \n{data}")
 
         transaction = read_transactions(data.splitlines())
-        print(f"Parsed Transactions: \n{transaction}")
+        print("Transactions received:")
+        print_transactions(transaction)
         
 
 if __name__ == '__main__':

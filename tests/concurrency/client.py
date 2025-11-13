@@ -5,12 +5,12 @@ def client():
     # Server IP and port
     host = '127.0.0.1'
     port = 5000
-
+    
     client_socket = socket.socket() 
     client_socket.connect((host, port))
 
     while(True):
-        input_file = input("Enter the transaction file name (e.g., './input/1.txt'): ")
+        input_file = input("Enter the transaction file name (e.g., '1.txt'): ")
         with open(input_file, 'r') as file:
             data = file.read()
         client_socket.send(data.encode())
