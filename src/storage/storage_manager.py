@@ -1,4 +1,4 @@
-# Implement IStorageManager interface
+import os
 from typing import List, Optional
 from src.core import IStorageManager
 from src.core.models import (
@@ -9,13 +9,14 @@ from src.core.models import (
     TableSchema, 
     Rows
 )
+from src.storage.ddl import DDLManager
 
 
 class StorageManager(IStorageManager):
     
     def __init__(self, data_directory: str = "data"):
         self.data_directory = data_directory
-        pass
+        self.ddl_manager = DDLManager(f"src/{self.data_directory}")
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         pass
@@ -39,13 +40,23 @@ class StorageManager(IStorageManager):
         pass
     
     def create_table(self, schema: TableSchema) -> None:
-        pass
-    
+        if self.ddl_manager.schema_exists(schema.table_name):
+            raise ValueError(f"Table '{schema.table_name}' already exists")
+
+        self.ddl_manager.validate_schema(schema)
+
+        self.ddl_manager.save_schema(schema)
+        self.ddl_manager.create_table_file(schema.table_name)
+
     def drop_table(self, table_name: str) -> None:
-        pass
-    
+        if not self.ddl_manager.schema_exists(table_name):
+            raise ValueError(f"Table '{table_name}' does not exist")
+
+        self.ddl_manager.delete_schema(table_name)
+        self.ddl_manager.delete_table_file(table_name)
+
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        pass
-    
+        return self.ddl_manager.load_schema(table_name)
+
     def list_tables(self) -> List[str]:
-        pass
+        return self.ddl_manager.list_schema_files()
