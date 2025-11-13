@@ -2,6 +2,7 @@ from .action import Action
 from .query import ParsedQuery
 from .result import ExecutionResult, Rows
 from .response import Response
+from .failure import LogRecordType, LogRecord, RecoverCriteria
 from .storage import (
     # Enums
     DataType,
@@ -20,6 +21,8 @@ from .storage import (
     # DDL
     ColumnDefinition,
     TableSchema,
+    ForeignKeyConstraint,
+    ForeignKeyAction,
 )
 
 __all__ = [
@@ -44,6 +47,8 @@ __all__ = [
     # DDL
     "ColumnDefinition",
     "TableSchema",
+    "ForeignKeyConstraint",
+    "ForeignKeyAction",
 
     # Result
     "ExecutionResult", 
@@ -51,4 +56,9 @@ __all__ = [
 
     # Response
     "Response",
+  
+    # Failure Recover
+    "LogRecordType",
+    "LogRecord",
+    "RecoverCriteria"
 ]
