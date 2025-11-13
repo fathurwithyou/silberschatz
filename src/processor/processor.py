@@ -1,4 +1,4 @@
-from core import IQueryProcessor, IQueryOptimizer, IStorageManager, CCManager, IFailureRecoveryManager
+from core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
 from .operators import ScanOperator
@@ -12,7 +12,7 @@ class QueryProcessor(IQueryProcessor):
     
     def __init__(self, 
                  optimizer: IQueryOptimizer,
-                 ccm: CCManager,
+                 ccm: IConcurrencyControlManager,
                  frm: IFailureRecoveryManager,
                  storage: IStorageManager
                  ):
