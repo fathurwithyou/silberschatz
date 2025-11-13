@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from .models import (
     DataRetrieval, DataWrite, DataDeletion,
-    Statistic, TableSchema, Row
+    Statistic, TableSchema, Rows
 )
 
 class IStorageManager(ABC):
@@ -12,7 +12,7 @@ class IStorageManager(ABC):
     # ============================================
     
     @abstractmethod
-    def read_block(self, data_retrieval: DataRetrieval) -> List[Row]:
+    def read_block(self, data_retrieval: DataRetrieval) -> List[Rows]:
         """
         Membaca data dari storage
         Args:

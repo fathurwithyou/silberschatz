@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from models import Action, Response, Rows
+from .models import Action, Response, Rows
 
 class IConcurrencyControlManager(ABC):
     @abstractmethod
