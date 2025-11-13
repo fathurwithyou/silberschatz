@@ -1,5 +1,6 @@
 from ..processor import QueryProcessor
-from core.models import ExecutionResult
+from core.models import ExecutionResult, ParsedQuery, QueryNodeType
+from datetime import datetime
 
 class TCLHandler:
     """
@@ -7,56 +8,30 @@ class TCLHandler:
     """
     def __init__(self, processor: QueryProcessor):
         self.processor = processor
-
-    def handle_begin(self, tokens) -> ExecutionResult:
-        """
-        Handle perintah 'BEGIN TRANSACTION'
-        """
-        if not (len(tokens) == 2 and tokens[1] == 'TRANSACTION'):
-            raise SyntaxError("Invalid syntax. Expected 'BEGIN TRANSACTION'.")
         
-        if self.processor.transaction_id:
-            raise Exception("Transaction already active.")
+    def handle(self, query: ParsedQuery) -> ExecutionResult:
+        if query.tree.type == QueryNodeType.BEGIN_TRANSACTION:
+            self.processor.transaction_id = self.processor.ccm.begin_transaction()
             
-        # Panggil CCM
-        # tx_id = self.processor.ccm.begin_transaction()
-        # self.processor.transaction_id = tx_id
-        
-        # return ExecutionResult(transaction_id=tx_id, message="BEGIN TRANSACTION successful.")
-        raise NotImplementedError
-
-    def handle_commit(self, tokens) -> ExecutionResult:
-        """
-        Handle perintah 'COMMIT'
-        """
-        if len(tokens) > 1:
-             raise SyntaxError("Invalid syntax. Expected 'COMMIT'.")
-             
-        tx_id = self.processor.transaction_id
-        if not tx_id:
-            raise Exception("No active transaction to commit.")
-        
-        # Panggil CCM
-        # self.processor.ccm.end_transaction(tx_id)
-        # self.processor.transaction_id = None
-        
-        # return ExecutionResult(transaction_id=tx_id, message="COMMIT successful.")
-        raise NotImplementedError
-
-    def handle_abort(self, tokens) -> ExecutionResult:
-        """
-        Handle perintah 'ABORT'
-        """
-        if len(tokens) > 1:
-             raise SyntaxError("Invalid syntax. Expected 'ABORT'.")
-        
-        tx_id = self.processor.transaction_id
-        if not tx_id:
-            raise Exception("No active transaction to abort.")
+            return ExecutionResult(transaction_id=self.processor.transaction_id, 
+                                   message="BEGIN TRANSACTION successful.", 
+                                   data=None, 
+                                   timestamp=datetime.now(), 
+                                   query=query.query)
             
-        # Panggil CCM
-        # self.processor.ccm.end_transaction(tx_id)
-        # self.processor.transaction_id = None
+        elif query.tree.type == QueryNodeType.COMMIT: 
+            tx_id = self.processor.transaction_id
+            if not tx_id:
+                raise Exception("No active transaction to commit.")
+            
+            self.processor.ccm.end_transaction(tx_id)
+            self.processor.transaction_id = None
+            
+            return ExecutionResult(transaction_id=tx_id, 
+                                   message="COMMIT successful.", 
+                                   data=None, 
+                                   timestamp=datetime.now(), 
+                                   query=query.query)
+            
         
-        # return ExecutionResult(transaction_id=tx_id, message="ABORT successful.")
-        raise NotImplementedError
+        raise SyntaxError("Unsupported TCL operation.")

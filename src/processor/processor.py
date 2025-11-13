@@ -1,9 +1,8 @@
-from core import IQueryProcessor, IQueryOptimizer
-from core.models import ExecutionResult, Rows, QueryTree
-from .handlers import TCLHandler, DMLHandler
+from core import IQueryProcessor, IQueryOptimizer, IStorageManager, CCManager, IFailureRecoveryManager
+from core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
+from .handlers import TCLHandler, DMLHandler, DDLHandler
 from .operators import ScanOperator
 from typing import Optional
-import re
 
 """
 Kelas utama untuk memproses query yang diterima dari user.
@@ -12,19 +11,22 @@ class QueryProcessor(IQueryProcessor):
     
     def __init__(self, 
                  optimizer: IQueryOptimizer,
-                #  ccm: IConcurrencyControlManager,
-                #  frm: IFailureRecoveryManager,
-                #  storage: IStorageManager
+                 ccm: CCManager,
+                 frm: IFailureRecoveryManager,
+                 storage: IStorageManager
                  ):
         
         self.optimizer = optimizer
+        self.ccm = ccm
+        self.frm = frm
+        self.storage = storage
         
         self.transaction_id: Optional[int] = None
         
         # handler untuk berbagai jenis query (TCL, DML, atau DDL kalo mau kerja bonus)
         self.dml_handler = DMLHandler(self)
         self.tcl_handler = TCLHandler(self)
-        # self.ddl_handler = DDLHandler(self)
+        self.ddl_handler = DDLHandler(self)
         
         # operator untuk berbagai operasi (scan, join, selection, dsb)
         self.scan_operator = ScanOperator()
@@ -36,36 +38,25 @@ class QueryProcessor(IQueryProcessor):
         Eksekusi query yang diterima dari user.
         """
         try: 
-            return self._route_query(query)
+            # validated_query = self.validator.validate(query)
+            parsed_query = self.optimizer.parse_query(query)
+            return self._route_query(parsed_query)
         except Exception as e:
             raise e
             # return ExecutionResult(message=str(e), transaction_id=None, data=None, timestamp=None, query=query)
         
 
-    def _route_query(self, query_str: str):
+    def _route_query(self, query: ParsedQuery):
         """
         Membaca query dan memanggil handler yang sesuai.
         """
-        if not query_str or query_str.isspace():
-            raise ValueError("Query cannot be empty.")
-
-        # Bersihkan spasi dan pecah jadi token
-        tokens = re.split(r'\s+', query_str.strip().upper())
-        first_token = tokens[0]
-
-        # Handle DML (Data Manipulation Language)
-        if first_token in ('SELECT', 'UPDATE', 'INSERT', 'DELETE'):
-            return self.dml_handler.handle(query_str)
-
-        # Handle TCL (Transaction Control Language)
-        elif first_token == 'BEGIN':
-            return self.tcl_handler.handle_begin(tokens)
-        elif first_token == 'COMMIT':
-            return self.tcl_handler.handle_commit(tokens)
-        elif first_token == 'ABORT':
-            return self.tcl_handler.handle_abort(tokens)
+        query_type = self._get_query_type(query.tree)
+        if query_type == "DML":
+            return self.dml_handler.handle(query)
+        elif query_type == "TCL":
+            return self.tcl_handler.handle(query)
         else:
-            raise SyntaxError(f"Unrecognized command: {first_token}")
+            return self.ddl_handler.handle(query)
         
         
     def execute(self, node: QueryTree, tx_id: int) -> Rows:
@@ -73,10 +64,24 @@ class QueryProcessor(IQueryProcessor):
         Eksekusi query secara rekursif berdasarkan pohon query yang sudah di-parse.
         """
         
-        if node.type == 'TABLE_SCAN':
+        if node.type == QueryNodeType.TABLE:
             return self.scan_operator.execute(node.value, tx_id)
         # elif node.type == 'JOIN':
         #     return self.join_operator.execute(node.children, tx_id)
         # dst
         
         raise NotImplementedError
+    
+    def _get_query_type(self, query_tree: QueryTree) -> str:
+        """
+        Mengembalikan tipe query berdasarkan pohon query.
+        """
+        
+        ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
+        tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
+        if query_tree.type in ddl_type:
+            return "DDL"
+        elif query_tree.type in tcl_type:
+            return "TCL"
+        else:
+            return "DML"

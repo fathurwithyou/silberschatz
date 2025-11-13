@@ -1,5 +1,6 @@
 from ..processor import QueryProcessor
-from core.models import ExecutionResult
+from core.models import ExecutionResult, ParsedQuery
+from datetime import datetime
 
 class DMLHandler:
     """
@@ -9,39 +10,34 @@ class DMLHandler:
     def __init__(self, processor: QueryProcessor):
         self.processor = processor
 
-    def handle(self, query_str: str) -> ExecutionResult:
+    def handle(self, query: ParsedQuery) -> ExecutionResult:
         is_implicit = False
         tx_id = self.processor.transaction_id
         
         if not tx_id:
-            # tx_id = self.processor.ccm.begin_transaction()
+            tx_id = self.processor.ccm.begin_transaction()
             is_implicit = True
         
         try:
-            parsed_query = self.processor.optimizer.parse_query(query_str)
+            rows = self.processor.execute(query.tree, tx_id)
             
-            query_plan = self.processor.optimizer.optimize_query(parsed_query)
-            
-            # rows = self.processor.execute(query_plan.tree, tx_id)
-            
-            # result = ExecutionResult(
-            #     transaction_id=tx_id,
-            #     data=rows.data,
-            #     rows_count=rows.rows_count,
-            #     message="Query executed successfully.",
-            #     query=query_str
-            # )
+            result = ExecutionResult(
+                transaction_id=tx_id,
+                data=rows,
+                message="Query executed successfully.",
+                query=query.query,
+                timestamp=datetime.now()
+            )
             
             # self.processor.frm.write_log(result)
             
-            # if is_implicit:
-            #     self.processor.ccm.end_transaction(tx_id) # Commit
+            if is_implicit:
+                self.processor.ccm.end_transaction(tx_id) # Commit
                 
-            # return result
-            raise NotImplementedError
+            return result
 
         except Exception as e:
-            # if is_implicit:
-            #     self.processor.ccm.end_transaction(tx_id) # Abort
+            if is_implicit:
+                self.processor.ccm.end_transaction(tx_id) # Abort
             
             raise e

@@ -1,5 +1,5 @@
 from .action import Action
-from .query import ParsedQuery, QueryTree
+from .query import ParsedQuery, QueryTree, QueryNodeType
 from .result import ExecutionResult, Rows
 from .failure import LogRecordType, LogRecord, RecoverCriteria
 from .storage import (
@@ -29,6 +29,7 @@ __all__ = [
     "Action",
     "ParsedQuery",
     "QueryTree",
+    "QueryNodeType",
     
     # Enums
     "DataType",
