@@ -2,10 +2,15 @@ from typing import Optional, List, Set
 from src.optimizer.rules.base_rule import OptimizationRule
 from src.core.models.query import QueryTree, QueryNodeType
 from src.core import IStorageManager
+import re
 
 # Rule 7: Operasi seleksi dapat terdistribusi terhadap operasi theta join
 class SelectionJoinDistributionRule(OptimizationRule):   
-    def __init__(self, storage_manager: Optional[IStorageManager] = None):
+    def __init__(self, storage_manager: IStorageManager):
+        if storage_manager is None:
+            raise ValueError(
+                "SelectionJoinDistributionRule requires a valid storage_manager. "
+            )
         self._storage_manager = storage_manager
     
     @property
@@ -22,7 +27,7 @@ class SelectionJoinDistributionRule(OptimizationRule):
         child = node.children[0]
         return child.type in [QueryNodeType.JOIN, QueryNodeType.THETA_JOIN, QueryNodeType.NATURAL_JOIN, "INNER_JOIN"]
     
-    def apply(self, node: QueryTree) -> Optional[QueryTree]:
+    def apply(self, node: QueryTree) -> QueryTree:
         if not self.is_applicable(node):
             return None
         
@@ -109,7 +114,6 @@ class SelectionJoinDistributionRule(OptimizationRule):
         return new_join
     
     def _split_and_conditions(self, condition: str) -> List[str]:
-        import re
         parts = re.split(r'\s+AND\s+', condition, flags=re.IGNORECASE)
         return [part.strip() for part in parts if part.strip()]
     
@@ -153,7 +157,6 @@ class SelectionJoinDistributionRule(OptimizationRule):
         return columns
     
     def _extract_table_references(self, condition: str) -> Set[str]:
-        import re
         tables = set()
         
         # Pattern to match table.column references
@@ -165,7 +168,6 @@ class SelectionJoinDistributionRule(OptimizationRule):
     
     def _extract_column_references(self, condition: str) -> Set[str]:
         # Extract column names (without table prefix) from condition.
-        import re
         columns = set()
         
         # Remove table prefixes first
