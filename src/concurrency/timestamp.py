@@ -1,4 +1,4 @@
-from core.concurrency_manager import IConcurrencyControlManager
+from src.core.concurrency_manager import IConcurrencyControlManager
 
 class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
     def __init__(self):
