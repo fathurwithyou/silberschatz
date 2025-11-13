@@ -2,6 +2,7 @@ from core import IQueryProcessor, IQueryOptimizer, IStorageManager, CCManager, I
 from core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
 from .operators import ScanOperator
+from .validators import SyntaxValidator
 from typing import Optional
 
 """
@@ -23,6 +24,9 @@ class QueryProcessor(IQueryProcessor):
         
         self.transaction_id: Optional[int] = None
         
+        # validator untuk syntax SQL
+        self.validator = SyntaxValidator()
+        
         # handler untuk berbagai jenis query (TCL, DML, atau DDL kalo mau kerja bonus)
         self.dml_handler = DMLHandler(self)
         self.tcl_handler = TCLHandler(self)
@@ -37,13 +41,19 @@ class QueryProcessor(IQueryProcessor):
         """
         Eksekusi query yang diterima dari user.
         """
-        try: 
-            # validated_query = self.validator.validate(query)
-            parsed_query = self.optimizer.parse_query(query)
-            return self._route_query(parsed_query)
-        except Exception as e:
-            raise e
-            # return ExecutionResult(message=str(e), transaction_id=None, data=None, timestamp=None, query=query)
+        validated_query = self.validator.validate(query)
+        if not validated_query.is_valid:
+            error_msg = f"syntax error: {validated_query.error_message}\n"
+            if validated_query.error_position:
+                line, col = validated_query.error_position
+                error_msg += f"LINE {line}: {query}\n"
+                if query:
+                    pointer = ' ' * (col + 6) + '^'
+                    error_msg += pointer + '\n'
+            raise SyntaxError(f"ERROR: {error_msg}")
+        
+        parsed_query = self.optimizer.parse_query(query)
+        return self._route_query(parsed_query)
         
 
     def _route_query(self, query: ParsedQuery):
