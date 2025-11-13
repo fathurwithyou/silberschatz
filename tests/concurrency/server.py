@@ -5,7 +5,7 @@ from typing import Optional
 
 @dataclass
 class Operation:
-    rid: Optional[int] = None
+    data: Optional[int] = None
     action: str = ""
 
 @dataclass
@@ -21,11 +21,11 @@ def read_transactions(input: str) -> Transaction:
             parts = line.split(',')
             
             if len(parts) == 3:
-                action, tid, rid = parts
+                action, tid, data = parts
                 if int(tid) not in transaction_dict.operations:
                     transaction_dict.operations[int(tid)] = []
 
-                transaction_dict.operations[int(tid)].append(Operation(rid=int(rid), action=action))
+                transaction_dict.operations[int(tid)].append(Operation(data=int(data), action=action))
             else:
                 action, tid = parts
                 if int(tid) not in transaction_dict.operations:
@@ -39,8 +39,8 @@ def print_transactions(transaction: Transaction):
     for tid, ops in transaction.operations.items():
         print(f"Transaction ID: {tid}")
         for op in ops:
-            if op.rid is not None:
-                print(f"  Operation: {op.action} on RID {op.rid}")
+            if op.data is not None:
+                print(f"  Operation: {op.action} on data {op.data}")
             else:
                 print(f"  Operation: {op.action}")
 
