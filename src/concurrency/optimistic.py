@@ -1,2 +1,2 @@
-class TwoPhaseLocking:
+class OptimisticConcurrencyControl:
     pass

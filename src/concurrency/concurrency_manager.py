@@ -30,7 +30,8 @@ class ConcurrencyControlManager(IConcurrencyControlManager):
             case _:
                 raise ValueError(f"Unsupported concurrency control algorithm: {algorithm}")
     
-    def switch_algorithm(self, algorithm: str):
+    def switch_algorithm(self, 
+                         algorithm: str):
         match algorithm:
             case '2PL':
                 self._cc_manager = TwoPhaseLocking()
