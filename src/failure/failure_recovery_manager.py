@@ -16,6 +16,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         *,
         buffer_max: int = 256,
         query_processor: Optional[object] = None,
+        storage_manager: Optional[object] = None,
         meta_path: Optional[str | Path] = None,
     ) -> None:
         # path WAL & meta
@@ -31,6 +32,10 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         self._buffer_max = max(int(buffer_max), 1)
         self._buffer_size = 0  
         self.buffer: List[LogRecord] = []
+        
+        # Hook untuk integrasi dengan komponen lain
+        self.query_processor = query_processor
+        self.storage_manager = storage_manager
 
     # helper meta sidecar
     def _read_meta(self) -> Dict[str, Any]:
@@ -64,8 +69,81 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             self._buffer_size = 0
 
 
-    def save_checkpoint(self, *args, **kwargs):
-        pass
+    def save_checkpoint(self):
+        """
+        Menyimpan checkpoint ke dalam log.
+        Proses:
+        1. Flush buffer WAL ke disk
+        2. Write dirty blocks dari buffer ke physical storage
+        3. Catat active transactions
+        4. Tulis checkpoint entry ke log
+        5. Update metadata
+        """
+        # Step 1: Flush WAL buffer agar semua log masuk ke disk
+        self._flush_buffer_to_disk()
+        
+        # Step 2: Baca metadata untuk mendapat posisi checkpoint terakhir
+        meta = self._read_meta()
+        last_checkpoint_line = meta.get("last_checkpoint_line", 0)
+        
+        # Step 3: Identifikasi active transactions dari log
+        active_transactions = set()
+        committed_transactions = set()
+        aborted_transactions = set()
+        
+        current_line = 0
+        if self.log_path.exists():
+            with self.log_path.open("r", encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    current_line = line_num
+                    if line_num <= last_checkpoint_line:
+                        continue
+                        
+                    if line.strip():
+                        try:
+                            entry = json.loads(line.strip())
+                            log_type = entry.get("log_type")
+                            txn_id = entry.get("transaction_id")
+                            
+                            if log_type == "START":
+                                active_transactions.add(txn_id)
+                            elif log_type == "COMMIT":
+                                committed_transactions.add(txn_id)
+                                active_transactions.discard(txn_id)
+                            elif log_type == "ABORT":
+                                aborted_transactions.add(txn_id)
+                                active_transactions.discard(txn_id)
+                        except json.JSONDecodeError:
+                            continue
+        
+        # Step 4: Flush dirty blocks dari buffer ke physical storage
+        # Ini adalah tahap penting - menulis perubahan in-memory ke disk
+        if self.storage_manager and hasattr(self.storage_manager, 'flush_buffer'):
+            # Storage manager harus memiliki method untuk flush buffer-nya
+            self.storage_manager.flush_buffer()
+        
+        # Step 5: Buat dan tulis checkpoint log entry
+        checkpoint_record = LogRecord(
+            log_type=LogRecordType.CHECKPOINT,
+            transaction_id=-1,
+            item_name=None,
+            old_value=None,
+            new_value=None,
+            active_transactions=list(active_transactions)
+        )
+        
+        with self.log_path.open("a", encoding="utf-8") as f:
+            checkpoint_entry = checkpoint_record.to_dict()
+            f.write(json.dumps(checkpoint_entry, ensure_ascii=False) + "\n")
+            current_line += 1
+        
+        # Step 6: Update metadata dengan posisi checkpoint baru
+        meta["last_checkpoint_line"] = current_line
+        meta["last_checkpoint_time"] = time.time()
+        meta["active_transactions_at_checkpoint"] = list(active_transactions)
+        self._write_meta(meta)
+        
+        self._buffer_size = 0
 
     def recover(self, criteria: RecoverCriteria) -> List[str]:
         # Backward recovery berdasarkan criteria.
