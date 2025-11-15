@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from models import Action, Response, Row
+from .models import Action, Response, Rows
 
-class CCManager(ABC):
+class IConcurrencyControlManager(ABC):
     @abstractmethod
-    def log_object(self, row: Row, transaction_id: int):
+    def log_object(self, row: Rows, transaction_id: int) -> None:
         """
         Logs an object that is being accessed by the transaction.
         """
@@ -24,7 +24,7 @@ class CCManager(ABC):
         pass
 
     @abstractmethod
-    def validate_object(self, row: Row, transaction_id: int, action: Action) -> Response:
+    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
         """
         Validates whether the transaction can perform a certain action (READ or WRITE) on an object.
         """
