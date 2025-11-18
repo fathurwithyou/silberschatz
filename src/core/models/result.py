@@ -1,5 +1,5 @@
 from typing import List, TypeVar, Generic, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from .storage import TableSchema
 
@@ -10,7 +10,7 @@ T = TypeVar('T')
 class Rows(Generic[T]):
     data: List[T]
     rows_count: int
-    schema: List[TableSchema] = []
+    schema: List[TableSchema] = field(default_factory=list)
 
 @dataclass
 class ExecutionResult:

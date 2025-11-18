@@ -1,6 +1,9 @@
-from ..processor import QueryProcessor
+from typing import TYPE_CHECKING
 from core.models import ExecutionResult, ParsedQuery
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from ..processor import QueryProcessor
 
 class DDLHandler:
     """

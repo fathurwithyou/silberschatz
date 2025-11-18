@@ -4,6 +4,7 @@ from .handlers import TCLHandler, DMLHandler, DDLHandler
 from .operators import ScanOperator, SelectionOperator
 from .validators import SyntaxValidator
 from typing import Optional
+import re
 
 """
 Kelas utama untuk memproses query yang diterima dari user.
@@ -44,14 +45,16 @@ class QueryProcessor(IQueryProcessor):
         """
         validated_query = self.validator.validate(query)
         if not validated_query.is_valid:
-            error_msg = f"syntax error: {validated_query.error_message}\n"
+            error_msg = f"{validated_query.error_message}\n"
             if validated_query.error_position:
                 line, col = validated_query.error_position
                 error_msg += f"LINE {line}: {query}\n"
                 if query:
                     pointer = ' ' * (col + 6) + '^'
-                    error_msg += pointer + '\n'
-            raise SyntaxError(f"ERROR: {error_msg}")
+                    error_msg += pointer
+            raise SyntaxError(f"{error_msg}")
+        
+        query = re.sub(r'\s+', ' ', query.strip()).strip()
         
         parsed_query = self.optimizer.parse_query(query)
         return self._route_query(parsed_query)
@@ -74,12 +77,14 @@ class QueryProcessor(IQueryProcessor):
         """
         Eksekusi query secara rekursif berdasarkan pohon query yang sudah di-parse.
         """
-        
         if node.type == QueryNodeType.TABLE:
             return self.scan_operator.execute(node.value, tx_id)
         elif node.type == QueryNodeType.SELECTION:
             rows = self.execute(node.children[0], tx_id)
             return self.selection_operator.execute(rows, node.value)
+        elif node.type == QueryNodeType.PROJECTION:
+            rows = self.execute(node.children[0], tx_id)
+            return rows
         
         
         # elif node.type == 'JOIN':

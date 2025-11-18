@@ -11,8 +11,6 @@ class ParseError(Exception):
     def _format_message(self) -> str:
         if self.token and self.token.value:
             return f"syntax error at or near \"{self.token.value}\""
-        elif "syntax error:" in self.message:
-            return self.message 
         else:
             return f"syntax error"
 
@@ -44,7 +42,7 @@ class SQLParser:
                        <begin_statement> | <commit_statement>
         """
         if not self.current_token:
-            raise ParseError("syntax error: empty query")
+            raise ParseError("empty query")
         
         token_type = self.current_token.type
         
@@ -410,9 +408,9 @@ class SQLParser:
             if self.current_token:
                 raise ParseError("syntax error", self.current_token)
             else:
-                raise ParseError("syntax error: unexpected end of input")
+                raise ParseError("unexpected end of input")
         
         token = self._advance()
         if token is None:
-            raise ParseError("syntax error: unexpected end of input")
+            raise ParseError("unexpected end of input")
         return token
