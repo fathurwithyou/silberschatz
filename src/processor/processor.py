@@ -1,7 +1,7 @@
 from core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
-from .operators import ScanOperator
+from .operators import ScanOperator, SelectionOperator
 from .validators import SyntaxValidator
 from typing import Optional
 
@@ -33,7 +33,8 @@ class QueryProcessor(IQueryProcessor):
         self.ddl_handler = DDLHandler(self)
         
         # operator untuk berbagai operasi (scan, join, selection, dsb)
-        self.scan_operator = ScanOperator()
+        self.scan_operator = ScanOperator(self.ccm, self.storage)
+        self.selection_operator = SelectionOperator()
         # self.join_operator = JoinOperator()
         # dst
 
@@ -76,6 +77,11 @@ class QueryProcessor(IQueryProcessor):
         
         if node.type == QueryNodeType.TABLE:
             return self.scan_operator.execute(node.value, tx_id)
+        elif node.type == QueryNodeType.SELECTION:
+            rows = self.execute(node.children[0], tx_id)
+            return self.selection_operator.execute(rows, node.value)
+        
+        
         # elif node.type == 'JOIN':
         #     return self.join_operator.execute(node.children, tx_id)
         # dst
