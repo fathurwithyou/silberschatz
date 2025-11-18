@@ -46,6 +46,7 @@ class StorageManager(IStorageManager):
     def write_block(self, data_write: DataWrite) -> int:
         table = data_write.table_name
         schema = self.ddl_manager.load_schema(table) 
+        pk_name = schema.primary_key
 
         if schema is None:
             raise ValueError(f"Table '{table}' does not exist")
@@ -58,7 +59,6 @@ class StorageManager(IStorageManager):
             new_row = self.dml_manager._cast_by_schema(new_row, schema)
 
             # Validasi PK unik
-            pk_name = self.dml_manager._get_primary_key_name(schema)
             if pk_name and pk_name in new_row:
                 new_pk = new_row[pk_name]
 
@@ -80,15 +80,14 @@ class StorageManager(IStorageManager):
 
         # Update in-memory
         for i, row in enumerate(all_rows.data):
-            if self.dml_manager._matches(row, conditions, schema):
+            if self.dml_manager._matches(row, conditions):
                 new_row = row.copy()
 
                 for k, v in set_expr.items():
                     new_row[k] = v
 
-                new_row = self.dml_manager._cast_by_schema(new_row)
+                new_row = self.dml_manager._cast_by_schema(new_row, schema)
 
-                pk_name = self.dml_manager._get_primary_key_name()
                 if pk_name and (pk_name in set_expr):
                     new_pk = new_row[pk_name]
                     # agar tidak bentrok dengan row lain
@@ -117,7 +116,7 @@ class StorageManager(IStorageManager):
         conditions: List[Condition] = data_deletion.conditions
 
         before = len(all_rows.data)
-        kept = [r for r in all_rows.data if not self.dml_manager._matches(r, conditions, schema)]
+        kept = [r for r in all_rows.data if not self.dml_manager._matches(r, conditions)]
         deleted = before - len(kept)
 
         if deleted > 0:

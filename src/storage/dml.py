@@ -104,10 +104,13 @@ class DMLManager:
         casted = {}
         for col in schema.columns:
             name = col.name
+
             if name not in row_obj:
                 continue
+
             val = row_obj[name]
             t = col.data_type  
+
             try:
                 if t.startswith("INTEGER"):
                     casted[name] = None if val is None else int(val)
@@ -126,14 +129,23 @@ class DMLManager:
                     casted[name] = val
             except Exception: # Jika cast gagal
                 casted[name] = val
+
         # meng-copy kolom yang tak disebut di schema 
         for k, v in row_obj.items():
             if k not in casted:
                 casted[k] = v
         return casted
 
-    def _get_primary_key_name(self, schema: TableSchema) -> str | None:
-        return getattr(schema, "primary_key", None)
+    def row_matches(self, row: Dict[str, Any], conditions: List[Condition]) -> bool:
+        if not conditions:
+            return True
+        for cond in conditions:
+            col = cond.column
+            # sebenarnya bisa dilakukan cast pake _cast_by_schema(...) agar numerik dibandingkan dengan numerik 
+            val = row.get(col)
+            if not self._evaluate_condition(val, cond.operator, cond.value):
+                return False
+        return True
 
-    def _matches(self, row: Dict[str, Any], conditions: List[Condition], schema: TableSchema) -> bool:
-        return self.apply_conditions(row, conditions, schema)
+    def _matches(self, row: Dict[str, Any], conditions: List[Condition]) -> bool:
+        return self.row_matches(row, conditions)

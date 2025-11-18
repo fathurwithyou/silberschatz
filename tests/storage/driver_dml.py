@@ -318,38 +318,73 @@ def test_insert():
     storage = StorageManager("data_test")
 
     dw = DataWrite(
-        table="employees",
+        table_name="employees",
         data={"id": 999, "name": "New Guy", "age": 27, "salary": 72000},
         is_update=False,
         conditions=[]
     )
     inserted = storage.write_block(dw)
-    print_test("insert returns 1", inserted == 1)
 
+    if isinstance(inserted, int):
+        result = storage.read_block(DataRetrieval(
+            table_name="employees", columns=["*"], conditions=[], limit=None, offset=0
+        ))
+
+    print(f"{inserted} out of {result.rows_count} total rows had been inserted")
+
+    for row in result.data:
+        print(" ", row)
+
+    print(f"Result: {'PASS' if inserted == 1 else 'FAIL'}")
+    return inserted == 1
+    
 def test_update():
-    print_test("TEST 11: Insert")
+    print_test("TEST 12: Update")
     
     storage = StorageManager("data_test")
 
     dw = DataWrite(
-        table="employees",
+        table_name="employees",
         data={"salary": 88000},
         is_update=True,
         conditions=[Condition(column="age", operator=ComparisonOperator.GE, value=30)]
     )
     updated = storage.write_block(dw)
-    print_test("updated count > 0", updated > 0)
+    if isinstance(updated, int):
+        result = storage.read_block(DataRetrieval(
+            table_name="employees", columns=["*"], conditions=[], limit=None, offset=0
+        ))
+
+    print(f"{updated} out of {result.rows_count} total rows had been updated")
+
+    for row in result.data:
+        print(" ", row)
+
+    print(f"Result: {'PASS' if updated == 3 else 'FAIL'}")
+    return updated == 3
 
 def test_delete():
     print_test("TEST 12: Delete")
     
     storage = StorageManager("data_test")
     dd = DataDeletion(
-        table="employees",
+        table_name="employees",
         conditions=[Condition(column="salary", operator=ComparisonOperator.LT, value=70000)]
     )
     deleted = storage.delete_block(dd)
-    print_test("deleted >= 0", deleted >= 0)
+    if isinstance(deleted, int):
+        result = storage.read_block(DataRetrieval(
+            table_name="employees", columns=["*"], conditions=[], limit=None, offset=0
+        ))
+
+    print(f"{deleted} out of {result.rows_count} total rows had been deleted")
+
+    for row in result.data:
+        print(" ", row)
+
+    print(f"Result: {'PASS' if deleted == 1 else 'FAIL'}")
+    return deleted == 1
+
 
 def main():
     print_section("DML READ OPERATIONS TEST")
