@@ -1,7 +1,7 @@
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
-from .operators import ScanOperator, SelectionOperator
+from .operators import ScanOperator, SelectionOperator, ProjectionOperator
 from .validators import SyntaxValidator
 from typing import Optional
 import re
@@ -36,6 +36,7 @@ class QueryProcessor(IQueryProcessor):
         # operator untuk berbagai operasi (scan, join, selection, dsb)
         self.scan_operator = ScanOperator(self.ccm, self.storage)
         self.selection_operator = SelectionOperator()
+        self.projection_operator = ProjectionOperator()
         # self.join_operator = JoinOperator()
         # dst
 
@@ -84,7 +85,7 @@ class QueryProcessor(IQueryProcessor):
             return self.selection_operator.execute(rows, node.value)
         elif node.type == QueryNodeType.PROJECTION:
             rows = self.execute(node.children[0], tx_id)
-            return rows
+            return self.projection_operator.execute(rows, node.value)
         
         
         # elif node.type == 'JOIN':
