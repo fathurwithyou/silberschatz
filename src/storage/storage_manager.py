@@ -10,6 +10,7 @@ from src.core.models import (
     Rows
 )
 from src.storage.ddl import DDLManager
+from src.storage.dml import DMLManager
 
 
 class StorageManager(IStorageManager):
@@ -17,9 +18,29 @@ class StorageManager(IStorageManager):
     def __init__(self, data_directory: str = "data"):
         self.data_directory = data_directory
         self.ddl_manager = DDLManager(f"src/{self.data_directory}")
+        self.dml_manager = DMLManager(f"src/{self.data_directory}")
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
-        pass
+        schema = self.ddl_manager.load_schema(data_retrieval.table_name)
+        
+        if schema is None:
+            raise ValueError(f"Table '{data_retrieval.table_name}' does not exist")
+        
+        rows = self.dml_manager.load_all_rows(data_retrieval.table_name, schema)
+        
+        if data_retrieval.conditions:
+            rows = self.dml_manager.apply_conditions(rows, data_retrieval.conditions)
+        
+        if data_retrieval.columns:
+            rows = self.dml_manager.project_columns(rows, data_retrieval.columns)
+        
+        rows = self.dml_manager.apply_limit_offset(
+            rows, 
+            data_retrieval.limit, 
+            data_retrieval.offset or 0
+        )
+        
+        return rows
     
     def write_block(self, data_write: DataWrite) -> int:
         pass

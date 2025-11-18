@@ -44,7 +44,7 @@ class SyntaxValidator:
         if not query or not query.strip():
             return ValidationResult(
                 is_valid=False,
-                error_message="syntax error: empty query",
+                error_message="empty query",
                 error_position=(1, 1)
             )
         

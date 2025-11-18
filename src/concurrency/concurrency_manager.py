@@ -1,12 +1,10 @@
 from typing import List, Optional
 from src.core.concurrency_manager import IConcurrencyControlManager
+from src.core.models import Rows, Action, Response
 from .two_phase_locking import TwoPhaseLocking
 from .timestamp import TimestampBasedConcurrencyControl
 from .optimistic import OptimisticConcurrencyControl
 from .snapshot import SnapshotIsolation
-from src.core.models.query import Rows
-from src.core.models.action import Action
-from src.core.models.response import Response
 
 class ConcurrencyControlManager(IConcurrencyControlManager):
     '''
@@ -46,13 +44,16 @@ class ConcurrencyControlManager(IConcurrencyControlManager):
         print(f"Switched to {algorithm} concurrency control.")
 
     def begin_transaction(self) -> int:
-        return self.cc_manager.begin_transaction()
+        return self._cc_manager.begin_transaction()
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
-        self.cc_manager.log_object(row, transaction_id)
+        self._cc_manager.log_object(row, transaction_id)
 
     def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
-        return self.cc_manager.validate_object(row, transaction_id, action)
+        return self._cc_manager.validate_object(row, transaction_id, action)
 
     def end_transaction(self, transaction_id: int):
-        self.cc_manager.end_transaction(transaction_id)
+        self._cc_manager.end_transaction(transaction_id)
+
+if __name__ == "__main__":
+    print("Concurrency Control Manager Module")

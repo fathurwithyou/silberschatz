@@ -15,3 +15,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
     def validate_object(self, row, transaction, action):
         pass
+
+if __name__ == "__main__":
+    print("Two-Phase Locking Module")
