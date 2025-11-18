@@ -9,6 +9,7 @@ def get_schema_from_table_name(schemas: List[TableSchema], table_name: str) -> T
 
 def get_column_type(schemas: List[TableSchema], column_name: str) -> DataType:
     schema = None
+    lookup_name = column_name
     
     if column_name.count('.') == 0:
         # cari jumlah kemunculan kolom di semua schema
@@ -27,6 +28,7 @@ def get_column_type(schemas: List[TableSchema], column_name: str) -> DataType:
         # table_name.column_name
         table_name, col_name = column_name.split('.')
         schema = get_schema_from_table_name(schemas, table_name)
+        lookup_name = col_name
         if not any(col.name == col_name for col in schema.columns):
             raise ValueError(f"Column '{col_name}' not found in table '{table_name}'")
     
@@ -34,8 +36,7 @@ def get_column_type(schemas: List[TableSchema], column_name: str) -> DataType:
         raise ValueError(f"Invalid column '{column_name}'")
     
     for col in schema.columns:
-        if col.name == column_name:
+        if col.name == lookup_name:
             return col.data_type
         
     raise ValueError(f"Column '{column_name}' not found")
-
