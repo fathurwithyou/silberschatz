@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from core.models import ExecutionResult, ParsedQuery, QueryNodeType
+from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType
 from datetime import datetime
 
 if TYPE_CHECKING:

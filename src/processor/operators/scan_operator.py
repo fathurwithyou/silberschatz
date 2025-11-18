@@ -1,6 +1,6 @@
-from core.models.result import Rows
-from core import IConcurrencyControlManager, IStorageManager
-from core.models import DataRetrieval
+from src.core.models.result import Rows
+from src.core import IConcurrencyControlManager, IStorageManager
+from src.core.models import DataRetrieval
 
 
 class ScanOperator:

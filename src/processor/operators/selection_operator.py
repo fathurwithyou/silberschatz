@@ -1,4 +1,4 @@
-from core.models.result import Rows
+from src.core.models.result import Rows
 from ..conditions import ConditionEvaluator
 
 class SelectionOperator:

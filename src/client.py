@@ -1,6 +1,5 @@
 import socket
 import argparse
-import sys
 from utils.network import send_string, recv_string
 
 

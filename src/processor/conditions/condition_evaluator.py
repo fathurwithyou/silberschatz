@@ -1,5 +1,5 @@
 from .condition_parser import ConditionParser
-from core.models import TableSchema
+from src.core.models import TableSchema
 from typing import List, Dict, Any
 
 

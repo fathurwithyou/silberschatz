@@ -1,5 +1,5 @@
-from core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
-from core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
+from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
+from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
 from .operators import ScanOperator, SelectionOperator
 from .validators import SyntaxValidator

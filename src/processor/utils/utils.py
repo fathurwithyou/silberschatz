@@ -1,4 +1,4 @@
-from core.models import TableSchema, DataType
+from src.core.models import TableSchema, DataType
 from typing import List
 
 def get_schema_from_table_name(schemas: List[TableSchema], table_name: str) -> TableSchema:

@@ -1,5 +1,5 @@
-from core.models.result import Rows
-from core.models import Condition, ComparisonOperator
+from src.core.models.result import Rows
+from src.core.models import Condition, ComparisonOperator
 from typing import List
 import re
 

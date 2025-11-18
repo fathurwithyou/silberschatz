@@ -3,14 +3,14 @@ import os
 import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.models import ExecutionResult
-from core import IQueryProcessor
-from processor.processor import QueryProcessor
-from concurrency.concurrency_manager import ConcurrencyControlManager
-from storage.storage_manager import StorageManager
-from optimizer.optimizer import QueryOptimizer
-from failure.failure_recovery_manager import FailureRecoveryManager
-from utils.network import recv_string, send_string
+from src.core.models import ExecutionResult
+from src.core import IQueryProcessor
+from src.processor.processor import QueryProcessor
+from src.concurrency.concurrency_manager import ConcurrencyControlManager
+from src.storage.storage_manager import StorageManager
+from src.optimizer.optimizer import QueryOptimizer
+from src.failure.failure_recovery_manager import FailureRecoveryManager
+from src.utils.network import recv_string, send_string
 import socket
 import threading
 import time

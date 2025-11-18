@@ -1,7 +1,7 @@
 from typing import List
 import re
 from .condition import ConditionNode, SimpleCondition, ComplexCondition
-from core.models import ComparisonOperator, TableSchema
+from src.core.models import ComparisonOperator, TableSchema
 
 class ConditionParser:
     _instance = None

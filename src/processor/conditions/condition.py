@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Any, Dict
-from core.models import ComparisonOperator, TableSchema, DataType
+from src.core.models import ComparisonOperator, TableSchema, DataType
 from ..utils import get_column_type
 
 class ConditionNode(ABC):
@@ -40,7 +40,7 @@ class SimpleCondition(ConditionNode):
         
         raise ValueError(f"Unsupported operator {self.op}")
 
-    def _parse_value_and_type(self, value: str, schemas: List[TableSchema], row: Dict[str, Any]) -> Any:
+    def _parse_value_and_type(self, value: str, schemas: List[TableSchema], row: Dict[str, Any]) -> tuple[Any, DataType]:
         if value.isdigit():
             return int(value), DataType.INTEGER
         
