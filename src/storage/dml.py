@@ -98,3 +98,42 @@ class DMLManager:
             sliced = rows.data[start:]
         
         return Rows(data=sliced, rows_count=len(sliced))
+
+    # helper validasi & cast 
+    def _cast_by_schema(self, row_obj: Dict[str, Any], schema: TableSchema) -> Dict[str, Any]:
+        casted = {}
+        for col in schema.columns:
+            name = col.name
+            if name not in row_obj:
+                continue
+            val = row_obj[name]
+            t = col.data_type  
+            try:
+                if t.startswith("INTEGER"):
+                    casted[name] = None if val is None else int(val)
+                elif t.startswith("FLOAT"):
+                    casted[name] = None if val is None else float(val)
+                elif t.startswith("CHAR") or t.startswith("VARCHAR"):
+                    if val is None:
+                        casted[name] = None
+                    else:
+                        s = str(val)
+                        if col.max_length:
+                            casted[name] = s[: col.max_length] # memotong sesuai panjang maksimum
+                        else:
+                            casted[name] = s
+                else: # fallback
+                    casted[name] = val
+            except Exception: # Jika cast gagal
+                casted[name] = val
+        # meng-copy kolom yang tak disebut di schema 
+        for k, v in row_obj.items():
+            if k not in casted:
+                casted[k] = v
+        return casted
+
+    def _get_primary_key_name(self, schema: TableSchema) -> str | None:
+        return getattr(schema, "primary_key", None)
+
+    def _matches(self, row: Dict[str, Any], conditions: List[Condition], schema: TableSchema) -> bool:
+        return self.apply_conditions(row, conditions, schema)
