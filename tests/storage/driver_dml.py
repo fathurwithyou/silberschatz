@@ -11,6 +11,7 @@ from src.core.models import (
     DataType,
     DataRetrieval,
     DataWrite,
+    DataDeletion,
     Condition,
     ComparisonOperator,
     Rows
@@ -311,6 +312,44 @@ def test_read_complex_query():
     print(f"Result: {'PASS' if match else 'FAIL'}")
     return match
 
+def test_insert():
+    print_test("TEST 11: Insert")
+    
+    storage = StorageManager("data_test")
+
+    dw = DataWrite(
+        table="employees",
+        data={"id": 999, "name": "New Guy", "age": 27, "salary": 72000},
+        is_update=False,
+        conditions=[]
+    )
+    inserted = storage.write_block(dw)
+    print_test("insert returns 1", inserted == 1)
+
+def test_update():
+    print_test("TEST 11: Insert")
+    
+    storage = StorageManager("data_test")
+
+    dw = DataWrite(
+        table="employees",
+        data={"salary": 88000},
+        is_update=True,
+        conditions=[Condition(column="age", operator=ComparisonOperator.GE, value=30)]
+    )
+    updated = storage.write_block(dw)
+    print_test("updated count > 0", updated > 0)
+
+def test_delete():
+    print_test("TEST 12: Delete")
+    
+    storage = StorageManager("data_test")
+    dd = DataDeletion(
+        table="employees",
+        conditions=[Condition(column="salary", operator=ComparisonOperator.LT, value=70000)]
+    )
+    deleted = storage.delete_block(dd)
+    print_test("deleted >= 0", deleted >= 0)
 
 def main():
     print_section("DML READ OPERATIONS TEST")
@@ -327,6 +366,9 @@ def main():
         ("Read Empty Table", test_read_empty_table),
         ("Read Nonexistent Table", test_read_nonexistent_table),
         ("Complex Query", test_read_complex_query),
+        ("Insert", test_insert),
+        ("Update", test_update),
+        ("Delete", test_delete),
     ]
     
     results = []
