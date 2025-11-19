@@ -12,6 +12,7 @@ from src.core.models import (
 )
 from src.storage.ddl import DDLManager
 from src.storage.dml import DMLManager
+from src.storage.statistics import StatisticsManager
 
 
 class StorageManager(IStorageManager):
@@ -20,6 +21,7 @@ class StorageManager(IStorageManager):
         self.data_directory = data_directory
         self.ddl_manager = DDLManager(f"src/{self.data_directory}")
         self.dml_manager = DMLManager(f"src/{self.data_directory}")
+        self.statistics_manager = StatisticsManager(f"src/{self.data_directory}")
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         schema = self.ddl_manager.load_schema(data_retrieval.table_name)
@@ -126,7 +128,42 @@ class StorageManager(IStorageManager):
         return deleted
     
     def get_stats(self, table_name: str) -> Statistic:
-        pass
+        schema = self.ddl_manager.load_schema(table_name)
+        if schema is None:
+            raise ValueError(f"Table '{table_name}' does not exist")
+
+        rows = self.dml_manager.load_all_rows(table_name, schema)
+        
+        # n_r : number of tuples (rows).
+        n_r = self.statistics_manager.get_tuple_count(rows)
+
+        # l_r : tuple size in bytes 
+        l_r = self.statistics_manager.get_tuple_size(schema)
+
+        # f_r : blocking factor (tuples per block)
+        f_r = self.statistics_manager.get_blocking_factor(l_r)
+
+        # b_r : number of blocks (pages)
+        b_r = self.statistics_manager.get_number_of_blocks(n_r, f_r)
+
+        # V(A,r) : number of distinct values for each column
+        V = self.statistics_manager.calculate_distinct_values(rows, schema)
+
+        # Opsional : min, max, null counts
+        min_values, max_values = self.statistics_manager.calculate_min_max_values(rows, schema)
+        null_counts = self.statistics_manager.calculate_null_counts(rows, schema)
+
+        return Statistic(
+            table_name=table_name,
+            n_r=n_r,
+            b_r=b_r,
+            l_r=l_r,
+            f_r=f_r,
+            V=V,
+            min_values=min_values,
+            max_values=max_values,
+            null_counts=null_counts
+        )
     
     def set_index(self, table: str, column: str, index_type: str) -> None:
         pass
