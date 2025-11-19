@@ -63,7 +63,7 @@ class DatabaseServer:
         output.append(separator)
         
         # Format data rows
-        for row in rows[1:]:
+        for row in rows:
             values = [str(row.get(h, 'NULL')).ljust(col_widths[i]) for i, h in enumerate(headers)]
             data_row = "| " + " | ".join(values) + " |"
             output.append(data_row)
