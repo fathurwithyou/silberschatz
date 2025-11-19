@@ -98,3 +98,54 @@ class DMLManager:
             sliced = rows.data[start:]
         
         return Rows(data=sliced, rows_count=len(sliced))
+
+    # helper validasi & cast 
+    def _cast_by_schema(self, row_obj: Dict[str, Any], schema: TableSchema) -> Dict[str, Any]:
+        casted = {}
+        for col in schema.columns:
+            name = col.name
+
+            if name not in row_obj:
+                continue
+
+            val = row_obj[name]
+            t = col.data_type  
+
+            try:
+                if t.startswith("INTEGER"):
+                    casted[name] = None if val is None else int(val)
+                elif t.startswith("FLOAT"):
+                    casted[name] = None if val is None else float(val)
+                elif t.startswith("CHAR") or t.startswith("VARCHAR"):
+                    if val is None:
+                        casted[name] = None
+                    else:
+                        s = str(val)
+                        if col.max_length:
+                            casted[name] = s[: col.max_length] # memotong sesuai panjang maksimum
+                        else:
+                            casted[name] = s
+                else: # fallback
+                    casted[name] = val
+            except Exception: # Jika cast gagal
+                casted[name] = val
+
+        # meng-copy kolom yang tak disebut di schema 
+        for k, v in row_obj.items():
+            if k not in casted:
+                casted[k] = v
+        return casted
+
+    def row_matches(self, row: Dict[str, Any], conditions: List[Condition]) -> bool:
+        if not conditions:
+            return True
+        for cond in conditions:
+            col = cond.column
+            # sebenarnya bisa dilakukan cast pake _cast_by_schema(...) agar numerik dibandingkan dengan numerik 
+            val = row.get(col)
+            if not self._evaluate_condition(val, cond.operator, cond.value):
+                return False
+        return True
+
+    def _matches(self, row: Dict[str, Any], conditions: List[Condition]) -> bool:
+        return self.row_matches(row, conditions)
