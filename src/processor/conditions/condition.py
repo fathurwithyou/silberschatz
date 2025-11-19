@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Any, Dict
 from src.core.models import ComparisonOperator, TableSchema, DataType
-from ..utils import get_column_type
+from ..utils import get_column_type, get_column_value, validate_column_in_schemas
 
 class ConditionNode(ABC):
     @abstractmethod
@@ -50,8 +50,10 @@ class SimpleCondition(ConditionNode):
         if value.startswith("'") and value.endswith("'"):
             return value.strip("'\""), DataType.VARCHAR
         
+        validate_column_in_schemas(schemas, value)
         column_type = get_column_type(schemas, value)
-        return row.get(value), column_type
+        column_value = get_column_value(row, value)
+        return column_value, column_type
 
 class ComplexCondition(ConditionNode):
     def __init__(self, op: str, children: List[ConditionNode]):

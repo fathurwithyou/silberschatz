@@ -1,7 +1,7 @@
 from src.core.models.result import Rows
 from src.core import IConcurrencyControlManager, IStorageManager
 from src.core.models import DataRetrieval
-
+from typing import List, Dict, Any
 
 class ScanOperator:
     def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager):
@@ -23,6 +23,7 @@ class ScanOperator:
         )
         rows = self.storage_manager.read_block(data_retrieval)
         rows.schema = [table_schema]
+        rows.data = self._transform_rows(rows.data, table_alias)
         
         return rows
     
@@ -32,3 +33,14 @@ class ScanOperator:
             return names[0], names[2]
         
         return names[0], names[0]
+    
+    def _transform_rows(self, rows: List[Dict[str, Any]], table_alias: str) -> List[Dict[str, Any]]:
+        transformed_data = []
+        for row in rows:
+            transformed_row = {}
+            for key, value in row.items():
+                qualified_key = f"{table_alias}.{key}"
+                transformed_row[qualified_key] = value
+            transformed_data.append(transformed_row)
+        
+        return transformed_data

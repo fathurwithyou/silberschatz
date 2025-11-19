@@ -4,7 +4,6 @@ import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.models import ExecutionResult
-from src.core import IQueryProcessor
 from src.processor.processor import QueryProcessor
 from src.concurrency.concurrency_manager import ConcurrencyControlManager
 from src.storage.storage_manager import StorageManager
@@ -39,37 +38,41 @@ class DatabaseServer:
         """Format execution result into a table string."""
         output = []
         
-        if result.data and result.data.rows_count > 0:
-            rows = result.data.data
-            headers = list(rows[0].keys())
-            
-            col_widths = {}
-            for header in headers:
-                col_widths[header] = max(
-                    len(header),
-                    max(len(str(row.get(header, 'NULL'))) for row in rows)
-                )
-            
-            # Format header row
-            header_row = "| " + " | ".join(header.ljust(col_widths[header]) for header in headers) + " |"
-            separator = "+" + "+".join("-" * (col_widths[header] + 2) for header in headers) + "+"
-            
-            # Build the table
+        if not result.data:
+            return "No Data returned.\n"
+        
+        shown_headers = [c.name for schema in result.data.schema for c in schema.columns]
+        col_widths = [len(header) for header in shown_headers]
+        
+        rows = result.data.data
+        headers = [f"{schema.table_name}.{c.name}" for schema in result.data.schema for c in schema.columns]
+        
+        for i, header in enumerate(headers):
+            col_widths[i] = max(
+                col_widths[i],
+                max(len(str(row.get(header, 'NULL'))) for row in rows) if rows else 0
+            )
+        
+        # Format header row
+        header_row = "| " + " | ".join(header.ljust(col_widths[i]) for i, header in enumerate(shown_headers)) + " |"
+        separator = "+" + "+".join("-" * (col_widths[i] + 2) for i in range(len(headers))) + "+"
+        
+        # Build the table
+        output.append(separator)
+        output.append(header_row)
+        output.append(separator)
+        
+        # Format data rows
+        for row in rows[1:]:
+            values = [str(row.get(h, 'NULL')).ljust(col_widths[i]) for i, h in enumerate(headers)]
+            data_row = "| " + " | ".join(values) + " |"
+            output.append(data_row)
+        
+        if result.data.rows_count > 0:
             output.append(separator)
-            output.append(header_row)
-            output.append(separator)
-            
-            # Format data rows
-            for row in rows:
-                values = [str(row.get(h, 'NULL')).ljust(col_widths[h]) for h in headers]
-                data_row = "| " + " | ".join(values) + " |"
-                output.append(data_row)
-                
-            output.append(separator)
-            output.append(f"\n({result.data.rows_count} rows)")
-            output.append(f"Time: {execution_time * 1000:.4f} ms")
-        elif result.data:
-            output.append("No Data returned.")
+        
+        output.append(f"\n({result.data.rows_count} rows)")
+        output.append(f"Time: {execution_time * 1000:.4f} ms")
             
         return "\n".join(output)
 
