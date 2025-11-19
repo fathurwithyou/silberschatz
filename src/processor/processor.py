@@ -6,6 +6,7 @@ from .operators import (
     SelectionOperator,
     ProjectionOperator,
     JoinOperator,
+    SortOperator,
 )
 from .validators import SyntaxValidator
 from typing import Optional
@@ -43,6 +44,7 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
+        self.sort_operator = SortOperator()
         # dst
 
     def execute_query(self, query: str) -> ExecutionResult:
@@ -101,6 +103,9 @@ class QueryProcessor(IQueryProcessor):
             right = self.execute(node.children[1], tx_id)
             condition = self._build_join_condition(node, left, right)
             return self.join_operator.execute(left, right, condition)
+        elif node.type == QueryNodeType.ORDER_BY:
+            rows = self.execute(node.children[0], tx_id)
+            return self.sort_operator.execute(rows, node.value)
         
         
         # elif node.type == 'JOIN':
