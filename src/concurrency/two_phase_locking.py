@@ -1,20 +1,231 @@
 from src.core.concurrency_manager import IConcurrencyControlManager
+from src.core.models.action import Action
+from src.core.models.response import Response
+from src.core.models.result import Rows
+import threading
 
 class TwoPhaseLocking(IConcurrencyControlManager):
     def __init__(self):
-        pass
+        self.lock_table = {}    
+        self.active_transactions = {}  
+        self.transaction_counter = 0
+        self.lock = threading.Lock()
+        self.waiting_queue = []
+        self.transaction_timestamps = []
 
-    def begin_transaction(self, transaction):
-        pass
+    def begin_transaction(self) -> int:
+        with self.lock:
+            self.transaction_counter += 1
+            tid = self.transaction_counter
 
-    def end_transaction(self, transaction):
-        pass
+            self.active_transactions[tid] = {
+                "state": "active",
+                "locked_items": set()
+            }
+            self.transaction_timestamps.append(tid)
 
-    def log_object(self, row, transaction):
-        pass
+        print(f"Transaction {tid} started.")
+        return tid
 
-    def validate_object(self, row, transaction, action):
-        pass
+    def log_object(self, row: Rows, transaction_id: int):
+        with self.lock:
+            if transaction_id not in self.active_transactions:
+                return Response(False, transaction_id)
 
-if __name__ == "__main__":
-    print("Two-Phase Locking Module")
+            print(f"Transaction {transaction_id} logged row.")
+
+    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
+        with self.lock:
+            if transaction_id not in self.active_transactions:
+                return Response(False, transaction_id)
+
+            tx = self.active_transactions[transaction_id]
+
+            if tx["state"] == "aborted":
+                return Response(False, transaction_id)
+
+            all_success = True
+            acquired = []
+
+            for item in row.data:
+                item_id = hash(item)
+
+                if action == Action.READ:
+                    ok = self._acquire_shared_lock(transaction_id, item_id)
+                else:
+                    ok = self._acquire_exclusive_lock(transaction_id, item_id)
+
+                if not ok:
+                    all_success = False
+                    break
+                acquired.append(item_id)
+
+            if not all_success:
+                for item_id in acquired:
+                    self._drop_lock(transaction_id, item_id)
+
+            status = "Success" if all_success else "Failed"
+            print(f"Transaction {transaction_id} {action.value}: {status}")
+
+            return Response(all_success, transaction_id)
+    
+    def end_transaction(self, tid):
+        with self.lock:
+            if tid not in self.active_transactions:
+                return Response(False, tid)
+
+        tx = self.active_transactions[tid]
+
+        self._handle_queue()
+
+        if tx["state"] == "aborted":
+            print(f"Transaction {tid} aborted before commit.")
+        else:
+            print(f"Transaction {tid} committed.")
+            tx["state"] = "committed"
+
+        with self.lock:
+            self._release_all_transaction_locks(tid)
+            del self.active_transactions[tid]
+
+    # wound-wait    
+    def _is_older(self, t1, t2):
+        return self.transaction_timestamps.index(t1) < self.transaction_timestamps.index(t2)
+
+    def _has_conflict(self, requesting_tid, item_id, mode):
+        if item_id not in self.lock_table:
+            return None
+        
+        lock_info = self.lock_table[item_id]
+        lock_type = lock_info["type"]
+        
+        if lock_type == "X":
+            holder = lock_info["holders"]
+            if holder != requesting_tid:
+                return holder
+        if mode == "X" and lock_type == "S":
+            holders = lock_info["holders"]
+            if not (holders == {requesting_tid}):
+                return list(holders)[0]
+            
+        return None
+
+    def _apply_wound_wait(self, requester_tid, item_id, holder_tid):
+        if self._is_older(requester_tid, holder_tid):
+            print(f"Transaction {holder_tid} wounded by older {requester_tid}")
+            self._abort_transaction(holder_tid)
+            return True
+
+        self.waiting_queue.append({
+            "transaction": requester_tid,
+            "record_id": item_id
+        })
+
+        print(f"Transaction {requester_tid} waiting for {holder_tid}")
+        return False
+
+    def _abort_transaction(self, tid):
+        if tid not in self.active_transactions:
+            return
+
+        tx = self.active_transactions[tid]
+        tx["state"] = "aborted"
+
+        print(f"Transaction {tid} aborted.")
+
+        self._release_all_transaction_locks(tid)
+
+        self.waiting_queue = [
+            w for w in self.waiting_queue if w["transaction"] != tid
+        ]
+
+        return Response(False, tid)
+
+    def _acquire_shared_lock(self, tid, item_id):
+        conflict = self._has_conflict(tid, item_id, "S")
+
+        if conflict:
+            return self._apply_wound_wait(tid, item_id, conflict)
+
+        if item_id in self.lock_table:
+            lock_info = self.lock_table[item_id]
+            if lock_info["type"] == "X" and lock_info["holders"] == {tid}:
+                return True 
+            
+            if lock_info["type"] == "S":
+                lock_info["holders"].add(tid)
+                self.active_transactions[tid]["locked_items"].add(item_id)
+                print(f"Transaction {tid} acquired shared lock on {item_id}")
+                return True
+
+        self.lock_table[item_id] = {
+            "type": "S",
+            "holders": {tid}
+        }
+        self.active_transactions[tid]["locked_items"].add(item_id)
+
+        print(f"Transaction {tid} acquired shared lock on {item_id}")
+        return True
+
+    def _acquire_exclusive_lock(self, tid, item_id):
+        conflict = self._has_conflict(tid, item_id, "X")
+
+        if conflict:
+            return self._apply_wound_wait(tid, item_id, conflict)
+
+        if item_id in self.lock_table:
+            lock_info = self.lock_table[item_id]
+            if lock_info["type"] == "X" and lock_info["holders"] == tid:
+                return True 
+            
+            if lock_info["type"] == "S" and lock_info["holders"] == {tid}:
+                self.lock_table[item_id] = {
+                    "type": "X",
+                    "holders": tid
+                }
+                print(f"Transaction {tid} upgraded lock on {item_id}")
+                return True
+
+        self.lock_table[item_id] = {
+            "type": "X",
+            "holders": tid
+        }
+        self.active_transactions[tid]["locked_items"].add(item_id)
+
+        print(f"Transaction {tid} acquired exclusive lock on {item_id}")
+        return True
+
+    def _drop_lock(self, tid, item_id):
+        if item_id not in self.lock_table:
+            return
+        
+        lock_info = self.lock_table[item_id]
+        
+        if lock_info["type"] == "S":
+            lock_info["holders"].discard(tid)
+            if not lock_info["holders"]:
+                del self.lock_table[item_id]
+        elif lock_info["type"] == "X":
+            if lock_info["holders"] == tid:
+                del self.lock_table[item_id]
+
+    def _release_all_transaction_locks(self, tid):
+        for item_id in list(self.lock_table.keys()):
+            lock_info = self.lock_table[item_id]
+            
+            if lock_info["type"] == "X" and lock_info["holders"] == tid:
+                del self.lock_table[item_id]
+            elif lock_info["type"] == "S" and tid in lock_info["holders"]:
+                lock_info["holders"].discard(tid)
+                if not lock_info["holders"]:
+                    del self.lock_table[item_id]
+
+    def _handle_queue(self):
+        new_queue = []
+        for entry in self.waiting_queue:
+            item = entry["record_id"]
+            if item not in self.lock_table:
+                continue
+            new_queue.append(entry)
+
+        self.waiting_queue = new_queue
