@@ -1,8 +1,6 @@
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from src.core.models import (
@@ -50,7 +48,7 @@ def test_join_with_condition_filters_rows():
     row = result.data[0]
     assert row["users.id"] == 1
     assert row["orders.user_id"] == 1
-    assert row["order_id"] == 10
+    assert row["orders.order_id"] == 10
 
 
 def test_join_without_condition_produces_cartesian_product():
@@ -69,7 +67,7 @@ def test_join_without_condition_produces_cartesian_product():
     result = join_operator.execute(left_rows, right_rows, None)
 
     assert result.rows_count == 2
-    assert all("value" in row for row in result.data)
+    assert all("b.value" in row for row in result.data)
 
 
 def test_join_preserves_duplicate_column_names_with_qualifiers():
@@ -90,5 +88,3 @@ def test_join_preserves_duplicate_column_names_with_qualifiers():
     row = result.data[0]
     assert row["users.id"] == 1
     assert row["orders.id"] == 2
-    # Base column retains the first table's value
-    assert row["id"] == 1

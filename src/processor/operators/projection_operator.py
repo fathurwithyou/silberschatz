@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 import re
 
 from src.core.models import Rows, TableSchema, ColumnDefinition
-from ..utils import get_schema_from_table_name
+from ..utils import get_schema_from_table_name, get_column_value
 
 
 @dataclass
@@ -144,8 +144,9 @@ class ProjectionOperator:
             elif item.kind == "table_wildcard" and item.value:
                 self._append_single_table(projected, row, schemas, item.value)
             elif item.kind == "column" and item.value:
-                column_name = item.alias or self._derive_output_name(item.value)
-                projected[column_name] = self._resolve_column_value(row, item.value)
+                column_def, table_name = self._get_column_definition(schemas, item.value)
+                column_name = item.alias or f"{table_name}.{column_def.name}"
+                projected[column_name] = get_column_value(row, item.value)
 
         return projected
 
@@ -161,7 +162,7 @@ class ProjectionOperator:
 
         for schema in schemas:
             for column in schema.columns:
-                target[column.name] = row.get(column.name)
+                target[f"{schema.table_name}.{column.name}"] = row.get(f"{schema.table_name}.{column.name}")
 
     def _append_single_table(
         self,
@@ -172,23 +173,12 @@ class ProjectionOperator:
     ) -> None:
         schema = get_schema_from_table_name(schemas, table_name)
         for column in schema.columns:
-            target[column.name] = row.get(column.name)
+            target[f"{table_name}.{column.name}"] = row.get(f"{table_name}.{column.name}")
 
     def _derive_output_name(self, column: str) -> str:
         if "." in column:
             return column.split(".", 1)[1]
         return column
-
-    def _resolve_column_value(self, row: Dict[str, object], column: str):
-        if column in row:
-            return row[column]
-        if "." in column:
-            _, col_name = column.split(".", 1)
-            if col_name in row:
-                return row[col_name]
-        if column.lower() in row:
-            return row[column.lower()]
-        raise ValueError(f"Column '{column}' not found in row data")
 
     def _build_projected_schema(
         self, schemas: List[TableSchema], items: List[ProjectionItem]

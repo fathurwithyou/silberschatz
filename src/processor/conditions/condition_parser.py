@@ -15,6 +15,8 @@ class ConditionParser:
     def get_instance(schemas: List[TableSchema]) -> "ConditionParser":
         if ConditionParser._instance is None:
             ConditionParser._instance = ConditionParser(schemas)
+        else:
+            ConditionParser._instance.schemas = schemas
         return ConditionParser._instance
         
     def parse(self, condition_str: str) -> ConditionNode:
@@ -35,7 +37,7 @@ class ConditionParser:
 
     def _tokenize(self, text: str) -> List[str]:
         token_pattern = re.compile(
-            r"('[^']*')|(\"[^\"]*\")|(\(|\))|(>=|<=|<>|=|>|<)|(\bAND\b|\bOR\b)|([a-zA-Z0-9_.]+)"
+            r"('[^']*')|(\"[^\"]*\")|(\(|\))|(>=|<=|!=|=|>|<)|(\bAND\b|\bOR\b)|([a-zA-Z0-9_.]+)"
         )
         tokens = []
         for match in token_pattern.finditer(text):
@@ -125,7 +127,7 @@ class ConditionParser:
         self._advance()
         
         op_str = self._current_token_raw()
-        if op_str not in ('=', '>', '<', '>=', '<=', '<>'):
+        if op_str not in ('=', '>', '<', '>=', '<=', '!='):
             raise SyntaxError(f"Expected operator, found {op_str}")
         self._advance()
         
@@ -145,7 +147,7 @@ class ConditionParser:
             '<': ComparisonOperator.LT,
             '>=': ComparisonOperator.GE,
             '<=': ComparisonOperator.LE,
-            '<>': ComparisonOperator.NE
+            '!=': ComparisonOperator.NE
         }
         
         if op_str not in operator_map:

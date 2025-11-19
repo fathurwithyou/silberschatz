@@ -1,6 +1,5 @@
 import os
 import sys
-
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -25,8 +24,8 @@ def _make_users_rows() -> Rows:
         primary_key="id",
     )
     data = [
-        {"id": 1, "name": "Alice", "age": 30},
-        {"id": 2, "name": "Bob", "age": 24},
+        {"users.id" : 1, "users.name": "Alice", "users.age": 30},
+        {"users.id": 2, "users.name": "Bob", "users.age": 24},
     ]
     return Rows(data=data, rows_count=len(data), schema=[schema])
 
@@ -54,7 +53,7 @@ def _make_joined_rows() -> Rows:
     )
 
     data = [
-        {"user_id": 1, "name": "Alice", "order_id": 10, "amount": 99.5},
+        {"users.user_id": 1, "users.name": "Alice", "orders.order_id": 10, "orders.amount": 99.5},
     ]
 
     return Rows(data=data, rows_count=len(data), schema=[user_schema, order_schema])
@@ -76,7 +75,7 @@ def test_projection_select_specific_columns():
     result = operator.execute(rows, "id, name")
 
     assert result.rows_count == rows.rows_count
-    assert all(set(row.keys()) == {"id", "name"} for row in result.data)
+    assert all(set(row.keys()) == {"users.id", "users.name"} for row in result.data)
     assert [col.name for col in result.schema[0].columns] == ["id", "name"]
 
 
@@ -96,7 +95,7 @@ def test_projection_table_wildcard_and_column():
 
     result = operator.execute(rows, "users.*, orders.order_id")
 
-    assert list(result.data[0].keys()) == ["user_id", "name", "order_id"]
+    assert list(result.data[0].keys()) == ["users.user_id", "users.name", "orders.order_id"]
     assert [col.name for col in result.schema[0].columns] == ["user_id", "name"]
     assert [col.name for col in result.schema[1].columns] == ["order_id"]
 

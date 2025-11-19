@@ -15,6 +15,7 @@ class JoinOperator:
         inner_relation: Rows,
         conditions: Optional[str] = None,
     ) -> Rows:
+        self._check_duplicate_alias(outer_relation.schema, inner_relation.schema)
         combined_schema = self._merge_schema(outer_relation.schema, inner_relation.schema)
         condition_text = None
         evaluator = None
@@ -90,6 +91,17 @@ class JoinOperator:
                 if value is None:
                     value = row.get(base_key)
 
-                if base_key not in target:
-                    target[base_key] = value
                 target[qualified_key] = value
+
+    def _check_duplicate_alias(
+        self,
+        outer_schema: Optional[List[TableSchema]],
+        inner_schema: Optional[List[TableSchema]],
+    ) -> None:
+        if not outer_schema or not inner_schema:
+            return
+
+        outer_aliases = {schema.table_name for schema in outer_schema if schema.table_name}
+        for schema in inner_schema:
+            if schema.table_name and schema.table_name in outer_aliases:
+                raise ValueError(f"Duplicate table alias found: {schema.table_name}")
