@@ -83,7 +83,7 @@ class UpdateOperator:
 
         from src.core.models import DataType
 
-        # NULL case
+        # null value
         if value_expr.upper() == "NULL":
             return None
 
@@ -96,7 +96,7 @@ class UpdateOperator:
         if is_quoted:
             literal = value_expr[1:-1]
 
-            # Numeric column literal harus validasi sebagai number
+            # numeric column literal harus validasi sebagai number
             if column_type == DataType.INTEGER:
                 try:
                     return int(literal)
@@ -116,7 +116,7 @@ class UpdateOperator:
             # CHAR/VARCHAR return literal as string
             return literal
 
-        # Non-quoted numeric value
+        # non-quoted numeric value
         if column_type == DataType.INTEGER:
             try:
                 return int(value_expr)
@@ -137,5 +137,5 @@ class UpdateOperator:
         if column_type in (DataType.CHAR, DataType.VARCHAR):
             return value_expr
 
-        # Defaultnya return raw string
+        # defaultnya return raw string
         return value_expr
