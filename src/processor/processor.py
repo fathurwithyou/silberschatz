@@ -6,7 +6,7 @@ from .operators import (
     SelectionOperator,
     ProjectionOperator,
     JoinOperator,
-    SortOperator,
+    UpdateOperator,
 )
 from .validators import SyntaxValidator
 from typing import Optional
@@ -44,7 +44,7 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
-        self.sort_operator = SortOperator()
+        self.update_operator = UpdateOperator(self.ccm, self.storage) 
         # dst
 
     def execute_query(self, query: str) -> ExecutionResult:
@@ -87,12 +87,15 @@ class QueryProcessor(IQueryProcessor):
         """
         if node.type == QueryNodeType.TABLE:
             return self.scan_operator.execute(node.value, tx_id)
+        
         elif node.type == QueryNodeType.SELECTION:
             rows = self.execute(node.children[0], tx_id)
             return self.selection_operator.execute(rows, node.value)
+        
         elif node.type == QueryNodeType.PROJECTION:
             rows = self.execute(node.children[0], tx_id)
             return self.projection_operator.execute(rows, node.value)
+        
         elif node.type in {
             QueryNodeType.JOIN,
             QueryNodeType.NATURAL_JOIN,
@@ -103,16 +106,79 @@ class QueryProcessor(IQueryProcessor):
             right = self.execute(node.children[1], tx_id)
             condition = self._build_join_condition(node, left, right)
             return self.join_operator.execute(left, right, condition)
-        elif node.type == QueryNodeType.ORDER_BY:
-            rows = self.execute(node.children[0], tx_id)
-            return self.sort_operator.execute(rows, node.value)
         
+        elif node.type == QueryNodeType.UPDATE:
+            table_name = node.value
+            assignments = self._parse_assignments(node.children[0] if len(node.children) > 0 else None)
+            condition = node.children[1].value if len(node.children) > 1 else None
+            
+            updated_count = self.update_operator.execute(
+                table_name=table_name,
+                assignments=assignments,
+                condition=condition,
+                tx_id=tx_id
+            )
+            
+            return Rows(
+                data=[{'updated_rows': updated_count}],
+                rows_count=1,
+                schema=None
+            )
         
         # elif node.type == 'JOIN':
         #     return self.join_operator.execute(node.children, tx_id)
         # dst
         
         raise NotImplementedError
+    
+    def _parse_assignments(self, assignment_node) -> dict:
+        if assignment_node is None:
+            return {}
+        
+        if isinstance(assignment_node, dict):
+            return assignment_node
+        
+        if hasattr(assignment_node, 'value') and isinstance(assignment_node.value, dict):
+            return assignment_node.value
+        
+        if hasattr(assignment_node, 'value') and isinstance(assignment_node.value, str):
+            return self._parse_assignment_string(assignment_node.value)
+        
+        raise ValueError("Cannot parse assignment structure")
+    
+    def _parse_assignment_string(self, assignment_str: str) -> dict:
+        assignments = {}
+        # pisah dengan koma (bukan di dalam quotes)
+        parts = []
+        current = []
+        in_quote = False
+        quote_char = None
+        
+        for char in assignment_str:
+            if char in ('"', "'") and not in_quote:
+                in_quote = True
+                quote_char = char
+                current.append(char)
+            elif char == quote_char and in_quote:
+                in_quote = False
+                quote_char = None
+                current.append(char)
+            elif char == ',' and not in_quote:
+                parts.append(''.join(current).strip())
+                current = []
+            else:
+                current.append(char)
+        
+        if current:
+            parts.append(''.join(current).strip())
+        
+        # parse setiap assignment
+        for part in parts:
+            if '=' in part:
+                col, val = part.split('=', 1)
+                assignments[col.strip()] = val.strip()
+        
+        return assignments
     
     def _get_query_type(self, query_tree: QueryTree) -> str:
         """
