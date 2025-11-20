@@ -174,8 +174,14 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             entry_txn_id = entry.get("transaction_id", -1)
             
             # Cek apakah entry memenuhi criteria recovery
-            if not criteria.match(entry_timestamp, entry_txn_id):
-                break  # Berhenti jika criteria tidak terpenuhi
+            if (criteria.is_transaction) :
+                # Mode transaction: skip entry yang tidak cocok, tapi jangan menghentikan scanning.
+                if (not criteria.match(entry_timestamp , entry_txn_id)) :
+                    continue    # Lanjut scanning
+            else :
+                # Mode timestamp: kalau tidak match (timestamp < cutoff), berhenti karena entry sebelumnya lebih lama.
+                if (not criteria.match(entry_timestamp , entry_txn_id)) :
+                    break    # Berhenti jika criteria tidak terpenuhi
                 
             # Lakukan undo operation berdasarkan log_type
             log_type = entry.get("log_type")
