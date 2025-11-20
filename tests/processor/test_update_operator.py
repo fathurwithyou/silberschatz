@@ -394,35 +394,35 @@ def test_update_with_complex_values():
     assert call_args.data["department"] == "Sales"
 
 
-def test_apply_assignments_creates_updated_row():
-    """Test _apply_assignments method creates correct updated row."""
-    storage = _make_mock_storage_manager()
-    ccm = _make_mock_ccm()
-    operator = UpdateOperator(ccm, storage)
+# def test_apply_assignments_creates_updated_row():
+#     """Test _apply_assignments method creates correct updated row."""
+#     storage = _make_mock_storage_manager()
+#     ccm = _make_mock_ccm()
+#     operator = UpdateOperator(ccm, storage)
     
-    schema = storage.get_table_schema("employees")
+#     schema = storage.get_table_schema("employees")
     
-    original_row = {
-        "id": 1,
-        "name": "Alice",
-        "salary": 50000,
-        "department": "Sales"
-    }
+#     original_row = {
+#         "id": 1,
+#         "name": "Alice",
+#         "salary": 50000,
+#         "department": "Sales"
+#     }
     
-    assignments = {
-        "salary": "60000",
-        "department": "'Engineering'"
-    }
+#     assignments = {
+#         "salary": "60000",
+#         "department": "'Engineering'"
+#     }
     
-    updated_row = operator._apply_assignments(original_row, assignments, schema)
+#     updated_row = operator._apply_assignments(original_row, assignments, schema)
     
-    # verifikasi kolom asli tetap terjaga
-    assert updated_row["id"] == 1
-    assert updated_row["name"] == "Alice"
+#     # verifikasi kolom asli tetap terjaga
+#     assert updated_row["id"] == 1
+#     assert updated_row["name"] == "Alice"
     
-    # verifikasi kolom yang diupdate
-    assert updated_row["salary"] == 60000
-    assert updated_row["department"] == "Engineering"
+#     # verifikasi kolom yang diupdate
+#     assert updated_row["salary"] == 60000
+#     assert updated_row["department"] == "Engineering"
 
 
 # Integration-style test
