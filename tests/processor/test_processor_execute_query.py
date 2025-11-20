@@ -421,6 +421,23 @@ def test_complex_query_with_wildcard_and_conditions():
     finally:
         cleanup_test_data()
 
+def test_update_query():
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        result = processor.execute_query("UPDATE users SET salary = 80000 WHERE id = 2")
+        
+        assert isinstance(result, ExecutionResult)
+        assert result.message is not None
+        
+        select_result = processor.execute_query("SELECT salary FROM users WHERE id = 2")
+        assert select_result.data is not None
+        assert select_result.data.rows_count == 1
+        assert select_result.data.data[0]["users.salary"] == 80000.0
+        
+    finally:
+        cleanup_test_data()
 
 if __name__ == "__main__":
     test_execute_query_valid_select()
@@ -435,6 +452,7 @@ if __name__ == "__main__":
     test_execute_projection_node()
     test_query_routing()
     test_whitespace_normalization()
+    test_update_query()
     test_complex_query()
     test_complex_query_with_multiple_conditions()
     test_complex_query_with_or_conditions()

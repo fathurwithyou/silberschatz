@@ -6,6 +6,7 @@ from .operators import (
     SelectionOperator,
     ProjectionOperator,
     JoinOperator,
+    UpdateOperator,
     SortOperator,
 )
 from .validators import SyntaxValidator
@@ -44,6 +45,7 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
+        self.update_operator = UpdateOperator(self.ccm, self.storage) 
         self.sort_operator = SortOperator()
         # dst
 
@@ -87,12 +89,15 @@ class QueryProcessor(IQueryProcessor):
         """
         if node.type == QueryNodeType.TABLE:
             return self.scan_operator.execute(node.value, tx_id)
+        
         elif node.type == QueryNodeType.SELECTION:
             rows = self.execute(node.children[0], tx_id)
             return self.selection_operator.execute(rows, node.value)
+        
         elif node.type == QueryNodeType.PROJECTION:
             rows = self.execute(node.children[0], tx_id)
             return self.projection_operator.execute(rows, node.value)
+        
         elif node.type in {
             QueryNodeType.JOIN,
             QueryNodeType.NATURAL_JOIN,
@@ -103,16 +108,16 @@ class QueryProcessor(IQueryProcessor):
             right = self.execute(node.children[1], tx_id)
             condition, natural_shared_columns = self._build_join_condition(node, left, right)
             return self.join_operator.execute(left, right, condition, natural_shared_columns)
+        
+        elif node.type == QueryNodeType.UPDATE:
+            target_rows = self.execute(node.children[0], tx_id)
+            return self.update_operator.execute(target_rows, node.value)
+
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
-            return self.sort_operator.execute(rows, node.value)
+            return self.sort_operator.execute(rows, node.value)        
         
-        
-        # elif node.type == 'JOIN':
-        #     return self.join_operator.execute(node.children, tx_id)
-        # dst
-        
-        raise NotImplementedError
+        raise ValueError(f"Unknown query type: {node.type}")
     
     def _get_query_type(self, query_tree: QueryTree) -> str:
         """
