@@ -16,7 +16,9 @@
 
 <select_list> ::= '*' | <expression> [ AS IDENTIFIER ] { ',' <expression> [ AS IDENTIFIER ] }
 
-<from_clause> ::= <table_reference> { <join_clause> }
+<from_clause> ::= <join_expression> { ',' <join_expression> }
+
+<join_expression> ::= <table_reference> { <join_clause> }
 
 <table_reference> ::= IDENTIFIER [ [ AS ] IDENTIFIER ]
 

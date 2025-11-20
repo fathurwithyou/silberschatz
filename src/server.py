@@ -41,17 +41,14 @@ class DatabaseServer:
         if not result.data:
             return "No Data returned.\n"
         
-        shown_headers = [c.name for schema in result.data.schema for c in schema.columns]
+        rows = result.data.data or []
+        headers = self._resolve_ordered_headers(rows, result.data.schema)
+        shown_headers = [self._format_header_name(h) for h in headers]
         col_widths = [len(header) for header in shown_headers]
         
-        rows = result.data.data
-        headers = [f"{schema.table_name}.{c.name}" for schema in result.data.schema for c in schema.columns]
-        
         for i, header in enumerate(headers):
-            col_widths[i] = max(
-                col_widths[i],
-                max(len(str(row.get(header, 'NULL'))) for row in rows) if rows else 0
-            )
+            value_width = max(len(str(row.get(header, 'NULL'))) for row in rows) if rows else 0
+            col_widths[i] = max(col_widths[i], value_width)
         
         # Format header row
         header_row = "| " + " | ".join(header.ljust(col_widths[i]) for i, header in enumerate(shown_headers)) + " |"
@@ -63,7 +60,7 @@ class DatabaseServer:
         output.append(separator)
         
         # Format data rows
-        for row in rows[1:]:
+        for row in rows:
             values = [str(row.get(h, 'NULL')).ljust(col_widths[i]) for i, h in enumerate(headers)]
             data_row = "| " + " | ".join(values) + " |"
             output.append(data_row)
@@ -75,6 +72,26 @@ class DatabaseServer:
         output.append(f"Time: {execution_time * 1000:.4f} ms")
             
         return "\n".join(output)
+
+    def _resolve_ordered_headers(self, rows, schemas):
+        if rows:
+            ordered = []
+            for row in rows:
+                for key in row.keys():
+                    if key not in ordered:
+                        ordered.append(key)
+            return ordered
+
+        header_keys = []
+        for schema in schemas:
+            for column in schema.columns:
+                header_keys.append(f"{schema.table_name}.{column.name}")
+        return header_keys
+
+    def _format_header_name(self, header: str) -> str:
+        if "." in header:
+            return header.split(".", 1)[1]
+        return header
 
     def handle_client(self, conn, addr):
         """Handle a single client connection in a separate thread."""

@@ -115,11 +115,20 @@ class SQLParser:
     
     def _parse_from_clause(self) -> None:
         """
-        <from_clause> ::= <table_reference> { <join_clause> }
+        <from_clause> ::= <join_expression> { ',' <join_expression> }
+        """
+        self._parse_join_expression()
+        
+        while self._check(TokenType.COMMA):
+            self._advance()
+            self._parse_join_expression()
+
+    def _parse_join_expression(self) -> None:
+        """
+        <join_expression> ::= <table_reference> { <join_clause> }
         """
         self._parse_table_reference()
         
-        # Handle JOINs
         while self._check_join():
             self._parse_join_clause()
     
