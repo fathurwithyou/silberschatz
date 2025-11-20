@@ -10,6 +10,7 @@ class TestFailureRecoveryManagerModels :
         1b. LogRecord With Basic Non-Change & Non-Checkpoint
         1c. LogRecord With Basic Change With No Active Transactions
         1d. LogRecord With Basic Checkpoint
+        1e. LogRecord With Arbitrary JSON-Serializable Values
     2. RecoverCriteria
         2a. RecoverCriteria From Timestamp Valid
         2b. RecoverCriteria From Timestamp Invalid Type
@@ -19,6 +20,8 @@ class TestFailureRecoveryManagerModels :
         2f. RecoverCriteria Flag Consistency
         2g. RecoverCriteria Match Timestamp Mode
         2h. RecoverCriteria Match Transaction Mode
+        2i. RecoverCriteria Match Timestamp Mode Ignores Transaction ID
+        2j. RecoverCriteria Match Transaction Mode Ignores Timestamp
     """
 
     def test_log_record_1a(self) -> None :
@@ -109,6 +112,21 @@ class TestFailureRecoveryManagerModels :
         assert (data["old_value"] is None)
         assert (data["new_value"] is None)
         assert (data["active_transactions"] == [10 , 20 , 30])
+    
+    def test_log_record_1e(self) -> None :
+        """
+        1e. LogRecord With Arbitrary JSON-Serializable Values
+        - LogRecord harus mempertahankan nilai old_value dan new_value yang berupa struktur kompleks.
+        """
+        complex_old = {"a" : 1 , "nested" : {"x" : 10 , "flag" : True}}
+        complex_new = {"a" : 2 , "nested" : {"x" : 20 , "flag" : False}}
+        record = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Config.data" , old_value = complex_old , new_value = complex_new , active_transactions = [1])
+        data = record.to_dict()
+        assert (data["log_type"] == "CHANGE")
+        assert (data["transaction_id"] == 1)
+        assert (data["item_name"] == "Config.data")
+        assert (data["old_value"] == complex_old)
+        assert (data["new_value"] == complex_new)
 
     def test_recover_criteria_2a(self) -> None :
         """
@@ -187,3 +205,25 @@ class TestFailureRecoveryManagerModels :
         criteria = RecoverCriteria.from_transaction(target_txn)
         assert (criteria.is_transaction)
         assert (criteria.match(0.0 , entry_txn) is expected)
+    
+    @pytest.mark.parametrize("cutoff_ts , entry_ts , entry_txn , expected" , [(100.0 , 50.0 , 1 , False) , (100.0 , 50.0 , 999 , False) , (100.0 , 100.0 , 1 , True) , (100.0 , 100.0 , 999 , True) , (100.0 , 135.0 , 3 , True) , (10.0 , 999.0 , 135 , True)])
+    def test_recover_criteria_2i(self , cutoff_ts , entry_ts , entry_txn , expected) -> None :
+        """
+        2i. RecoverCriteria Match Timestamp Mode Ignores Transaction ID
+        - Dalam mode timestamp, hasil match() hanya bergantung pada entry_ts, dan harus mengabaikan nilai transaction_id.
+        """
+        criteria = RecoverCriteria.from_timestamp(cutoff_ts)
+        assert (criteria.is_timestamp)
+        assert (not criteria.is_transaction)
+        assert (criteria.match(entry_ts , entry_txn) is expected)
+
+    @pytest.mark.parametrize("target_txn , entry_ts , entry_txn , expected" , [(1 , 0.0 , 1 , True) , (2 , 100.0 , 2 , True) , (3 , 999.0 , 3 , True) , (4 , -999.0 , 4 , True) , (1 , 0.0 , 2 , False) , (2 , 135.182 , 1 , False)])
+    def test_recover_criteria_2j(self , target_txn , entry_ts , entry_txn , expected) -> None :
+        """
+        2j. RecoverCriteria Match Transaction Mode Ignores Timestamp
+        - Dalam mode transaction, hasil match() hanya bergantung pada entry_txn, dan harus mengabaikan nilai timestamp entry_ts.
+        """
+        criteria = RecoverCriteria.from_transaction(target_txn)
+        assert (criteria.is_transaction)
+        assert (not criteria.is_timestamp)
+        assert (criteria.match(entry_ts , entry_txn) is expected)
