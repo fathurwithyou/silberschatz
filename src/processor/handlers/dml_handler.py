@@ -1,7 +1,10 @@
-from ..processor import QueryProcessor
-from core.models import ExecutionResult, ParsedQuery
+from typing import TYPE_CHECKING
+from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType
 from datetime import datetime
 
+if TYPE_CHECKING:
+    from ..processor import QueryProcessor
+    
 class DMLHandler:
     """
     Menangani query DML (Data Manipulation Language) 
@@ -28,6 +31,9 @@ class DMLHandler:
                 query=query.query,
                 timestamp=datetime.now()
             )
+            
+            if query.tree.type == QueryNodeType.UPDATE:
+                result.message = "update successful"
             
             # self.processor.frm.write_log(result)
             

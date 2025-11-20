@@ -111,7 +111,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
     
     # Helper
 
-    def _get_next_timestamps(self) -> float:
+    def _get_next_timestamp(self) -> float:
         self._logical_clock += 1
         return self._logical_clock
     
@@ -126,7 +126,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
             
             return f"object_{hash(str(row))}"
         
-    def _abort_transaction(self,transaction_id: int) -> None:
+    def _abort_transaction(self, transaction_id: int) -> None:
         if transaction_id in self._transactions:
-            self._transactions[transaction_id],status = "aborted"
+            self._transactions[transaction_id].status = "aborted"
     
