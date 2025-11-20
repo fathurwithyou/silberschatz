@@ -1,3 +1,4 @@
+from core.models.storage import ComparisonOperator, DataWrite, Condition
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
@@ -108,19 +109,52 @@ class QueryProcessor(IQueryProcessor):
             return self.join_operator.execute(left, right, condition)
         
         elif node.type == QueryNodeType.UPDATE:
-            table_name = node.value
-            assignments = self._parse_assignments(node.children[0] if len(node.children) > 0 else None)
-            condition = node.children[1].value if len(node.children) > 1 else None
-            
-            updated_count = self.update_operator.execute(
-                table_name=table_name,
-                assignments=assignments,
-                condition=condition,
-                tx_id=tx_id
-            )
-            
+
+            # SET clause dalam node.value
+            set_clause = node.value
+
+            # ambil child pertama: SELECTION atau TABLE
+            child = node.children[0]
+
+            # ambil table name dari node paling bawah
+            table_node = child
+            while table_node.type != QueryNodeType.TABLE:
+                table_node = table_node.children[0]
+
+            table_name = table_node.value
+
+            # eksekusi child untuk mendapatkan rows yang akan diupdate
+            target_rows = self.execute(node.children[0], tx_id)
+
+            # parse SET clause
+            assignments = self._parse_assignment_string(set_clause)
+
+            # ambil schema dan primary key
+            schema = self.storage.get_table_schema(table_name)
+            pk = schema.primary_key
+
+            updated_count = 0
+
+            # update setiap row
+            for row in target_rows.data:
+
+                updated_row = self.update_operator._apply_assignments(
+                    row,
+                    assignments,
+                    schema
+                )
+
+                data_write = DataWrite(
+                    table_name=table_name,
+                    data=updated_row,
+                    is_update=True,
+                    conditions=[Condition(pk, ComparisonOperator.EQ, row[pk])]
+                )
+
+                updated_count += self.storage.write_block(data_write)
+
             return Rows(
-                data=[{'updated_rows': updated_count}],
+                data=[{"updated_rows": updated_count}],
                 rows_count=1,
                 schema=None
             )
