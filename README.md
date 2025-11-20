@@ -1,15 +1,26 @@
 # silberschatz
 mDBMS
 
-# Usage
+## Usage
 
-## Server
+### Server
 
-`uv run src/server.py`
+```bash
+uv run src/server.py
+```
 
-## Client
+### Client
 
-`uv run src/client.py`
+```bash
+uv run src/client.py
+```
+## Seed
 
-# Testing Example
-`uv run python -m unittest discover -s tests/optimizer`
+```bash
+uv run scripts/seed_sample_data.py
+```
+
+## Testing Example
+```bash
+uv run python -m unittest discover -s tests/optimizer
+```
