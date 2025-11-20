@@ -67,6 +67,7 @@ class QueryProcessor(IQueryProcessor):
         query = re.sub(r'\s+', ' ', query.strip()).strip()
         
         parsed_query = self.optimizer.parse_query(query)
+        # optimized_query = self.optimizer.optimize_query(parsed_query)
         return self._route_query(parsed_query)
         
 

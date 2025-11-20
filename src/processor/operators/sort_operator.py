@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import List, Dict, Tuple, Any
 from datetime import datetime
-from src.core.models import Rows
+from src.core.models import Rows, TableSchema
+from ..utils import validate_column_in_schemas, get_column_value
 
 
 class SortOperator:
@@ -12,7 +13,7 @@ class SortOperator:
         sort_keys = self._parse_order_by(order_by)
         sorted_data = sorted(
             rows.data,
-            key=lambda row: self._build_sort_key(row, sort_keys)
+            key=lambda row: self._build_sort_key(row, sort_keys, rows.schema)
         )
 
         return Rows(
@@ -33,34 +34,15 @@ class SortOperator:
             keys.append((col, direction))
         return keys
     
-    def _build_sort_key(self, row: Dict[str, object], sort_keys):
+    def _build_sort_key(self, row: Dict[str, object], sort_keys: List[Tuple[str, str]], schemas: List[TableSchema]) -> Tuple:
         key = []
         for col, direction in sort_keys:
-            raw = self._resolve_column_value(row, col)
+            validate_column_in_schemas(schemas, col)
+            raw = get_column_value(row, col)
             norm = self._normalize_value(raw)
             key.append(self._apply_direction(norm, direction))
         return tuple(key)
     
-    def _resolve_column_value(self, row: Dict[str, Any], col: str):
-        # exact match (alias.col)
-        if col in row:
-            return row[col]
-
-        # unqualified match (col)
-        if "." in col:
-            _, base = col.split(".", 1)
-            if base in row:
-                return row[base]
-
-        # fallback
-        low = col.lower()
-        if low in row:
-            return row[low]
-
-        # fallback jika tidak ditemukan
-        return None
-
-
     def _normalize_value(self, value: Any):
         if value is None:
             return (0, None)
