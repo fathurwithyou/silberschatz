@@ -153,12 +153,19 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         # Flush buffer dulu biar semua log masuk ke disk
         self._flush_buffer_to_disk()
         
+        # Baca checkpoint info untuk optimasi
+        meta = self._read_meta()
+        last_checkpoint_line = meta.get("last_checkpoint_line", 0)
+        active_txns_at_checkpoint = set(meta.get("active_transactions_at_checkpoint", []))
+        
         recovery_actions = []
         
-        # Baca semua log entries dari file
+        # Baca log entries HANYA dari checkpoint terakhir (optimasi)
         log_entries = []
         with self.log_path.open("r", encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
+                if line_num < last_checkpoint_line:  # SKIP entries sebelum checkpoint
+                    continue
                 if line.strip():
                     try:
                         entry = json.loads(line.strip())
@@ -188,7 +195,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             
             if log_type == "CHANGE":
                 # Undo perubahan data
-                undo_action = self._undo_change(entry)
+                undo_action = self._undo_change(entry, active_txns_at_checkpoint)
                 if undo_action:
                     recovery_actions.append(undo_action)
                     
@@ -209,15 +216,20 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         
         return recovery_actions
 
-    def _undo_change(self, entry: Dict[str, Any]) -> str:
+    def _undo_change(self, entry: Dict[str, Any], active_txns_at_checkpoint: set = None) -> str:
         # Undo satu perubahan dari log entry.
         # Untuk sekarang, hanya return description action yang akan dilakukan.
         # Nanti bisa diintegrasikan dengan query processor untuk eksekusi nyata.
         
+        txn_id = entry.get("transaction_id", -1)
+        
+        # Cek apakah transaksi ini sudah committed di checkpoint terakhir
+        if active_txns_at_checkpoint and txn_id not in active_txns_at_checkpoint and txn_id != -1:
+            return f"SKIP CHANGE for committed transaction {txn_id}"
+        
         item_name = entry.get("item_name", "unknown")
         old_value = entry.get("old_value")
         new_value = entry.get("new_value")
-        txn_id = entry.get("transaction_id", -1)
         
         if old_value is not None:
             # Return description dari undo action
