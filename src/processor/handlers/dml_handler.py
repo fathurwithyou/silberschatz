@@ -1,5 +1,5 @@
 from typing import TYPE_CHECKING
-from src.core.models import ExecutionResult, ParsedQuery
+from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -31,6 +31,9 @@ class DMLHandler:
                 query=query.query,
                 timestamp=datetime.now()
             )
+            
+            if query.tree.type == QueryNodeType.UPDATE:
+                result.message = "update successful"
             
             # self.processor.frm.write_log(result)
             

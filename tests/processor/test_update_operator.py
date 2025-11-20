@@ -90,11 +90,13 @@ def test_update_single_column():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "salary = 65000", "id = 2")
-    rows = [{"id": 2, "name": "A", "salary": 100, "department": "X"}]
+    rows = Rows(data=[{"id": 2, "name": "A", "salary": 100, "department": "X"}], 
+                rows_count=1, 
+                schema=[storage.get_table_schema("employees")])
 
-    result = operator.execute(node, rows)
+    result = operator.execute(rows, "salary = 65000")
 
-    assert result["updated_rows"] == 1
+    assert result.rows_count == 1
     call_args = storage.write_block.call_args[0][0]
     assert call_args.data["salary"] == 65000
 
@@ -104,10 +106,12 @@ def test_update_multiple_columns():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "salary = 70000, department = 'Engineering'", "id = 1")
-    rows = [{"id": 1, "name": "A", "salary": 10, "department": "X"}]
+    rows = Rows(data=[{"id": 1, "name": "A", "salary": 10, "department": "X"}], 
+                rows_count=1, 
+                schema=[storage.get_table_schema("employees")])
 
-    result = operator.execute(node, rows)
-    assert result["updated_rows"] == 1
+    result = operator.execute(rows, "salary = 70000, department = 'Engineering'")
+    assert result.rows_count == 1
 
     call = storage.write_block.call_args[0][0]
     assert call.data["salary"] == 70000
@@ -120,12 +124,14 @@ def test_update_all_rows_no_where():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "department = 'Marketing'")
-    rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+    rows = Rows(data=[{"id": 1}, {"id": 2}, {"id": 3}], 
+                rows_count=3, 
+                schema=[storage.get_table_schema("employees")])
 
-    result = operator.execute(node, rows)
+    result = operator.execute(rows, "department = 'Marketing'")
 
     # 3 rows × write_block return(3) = 9
-    assert result["updated_rows"] == 9
+    assert result.rows_count == 9
 
 
 def test_update_with_null_value():
@@ -133,10 +139,12 @@ def test_update_with_null_value():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "department = NULL", "id = 1")
-    rows = [{"id": 1, "department": "Sales"}]
+    rows = Rows(data=[{"id": 1, "department": "Sales"}], 
+                rows_count=1, 
+                schema=[storage.get_table_schema("employees")])
 
-    result = operator.execute(node, rows)
-    assert result["updated_rows"] == 1
+    result = operator.execute(rows, "department = NULL")
+    assert result.rows_count == 1
 
     call = storage.write_block.call_args[0][0]
     assert call.data["department"] is None
@@ -144,13 +152,17 @@ def test_update_with_null_value():
 
 def test_update_nonexistent_table_raises_error():
     storage = _make_mock_storage_manager()
-    storage.get_table_schema = Mock(return_value=None)
+    storage.write_block = Mock(side_effect=ValueError("Table 'nope' does not exist"))
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("nope", "x = 1")
+    mock_schema = Mock()
+    mock_schema.table_name = "nope"
+    mock_schema.primary_key = None  # This will trigger the ValueError
+    rows = Rows(data=[], rows_count=0, schema=[mock_schema])
 
-    with pytest.raises(AttributeError):
-        operator.execute(node, [])
+    with pytest.raises(ValueError):
+        operator.execute(rows, "x = 1")
 
 
 def test_update_nonexistent_column_raises_error():
@@ -158,10 +170,12 @@ def test_update_nonexistent_column_raises_error():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "bad_column = 10")
+    rows = Rows(data=[{"id": 1}], 
+                rows_count=1, 
+                schema=[storage.get_table_schema("employees")])
 
-    rows = [{"id": 1}]
     with pytest.raises(ValueError):
-        operator.execute(node, rows)
+        operator.execute(rows, "bad_column = 10")
 
 
 def test_update_integration_flow():
@@ -169,11 +183,13 @@ def test_update_integration_flow():
     operator = UpdateOperator(_make_mock_ccm(), storage)
 
     node = FakeNode("employees", "salary = 80000, department = 'IT'", "id = 2")
-    rows = [{"id": 2, "name": "A", "salary": 10, "department": "X"}]
+    rows = Rows(data=[{"id": 2, "name": "A", "salary": 10, "department": "X"}], 
+                rows_count=1, 
+                schema=[storage.get_table_schema("employees")])
 
-    result = operator.execute(node, rows)
+    result = operator.execute(rows, "salary = 80000, department = 'IT'")
 
-    assert result["updated_rows"] == 1
+    assert result.rows_count == 1
     call = storage.write_block.call_args[0][0]
     assert call.data["salary"] == 80000
     assert call.data["department"] == "IT"

@@ -41,6 +41,11 @@ class DatabaseServer:
         if not result.data:
             return "No Data returned.\n"
         
+        if result.message and result.message == "update successful":
+            output.append(f"UPDATE {result.data.rows_count}")
+            output.append(f"Time: {execution_time * 1000:.4f} ms")
+            return "\n".join(output)
+        
         rows = result.data.data or []
         headers = self._resolve_ordered_headers(rows, result.data.schema)
         shown_headers = [self._format_header_name(h) for h in headers]

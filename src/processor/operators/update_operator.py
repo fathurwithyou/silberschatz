@@ -1,8 +1,6 @@
-from __future__ import annotations
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any
 from src.core import IConcurrencyControlManager, IStorageManager
-from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType
-)
+from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType, Rows)
 
 
 class UpdateOperator:
@@ -10,44 +8,44 @@ class UpdateOperator:
         self.ccm = ccm
         self.storage_manager = storage_manager
 
-    def execute(self, update_node: QueryTree, rows: List[Dict[str, Any]]):
+    def execute(self, rows: Rows, set_clause: str) -> Rows:
+        if len(rows.schema) != 1:
+            raise ValueError("UpdateOperator only supports single table updates.")
+        
+        table_name = rows.schema[0].table_name
+
         # ambil SET clause
-        set_clause = update_node.value
         assignments = self._parse_assignment_string(set_clause)
 
-        # ambil table name
-        child = update_node.children[0]
-        table_node = child
-        while table_node.type != QueryNodeType.TABLE:
-            table_node = table_node.children[0]
-
-        table_name = table_node.value
-
         # ambil schema & PK
-        schema = self.storage_manager.get_table_schema(table_name)
+        schema = rows.schema[0]
         pk = schema.primary_key
+        
+        if pk is None:
+            raise ValueError(f"Table '{table_name}' does not have a primary key.")
 
         # update per-row
         updated_count = 0
 
-        for row in rows:
+        for row in rows.data:
 
             # apply assignment seperti sebelumnya
             updated_row = self._apply_assignments(row, assignments, schema)
-
+            updated_row = self._transform_col_name(updated_row)
+            
             # condition berbasis PK
             data_write = DataWrite(
                 table_name=table_name,
                 data=updated_row,
                 is_update=True,
-                conditions=[Condition(pk, ComparisonOperator.EQ, row[pk])]
+                conditions=[Condition(pk, ComparisonOperator.EQ, updated_row[pk])]
             )
 
             updated_count += self.storage_manager.write_block(data_write)
 
-        return {
-            "updated_rows": updated_count
-        }
+        return Rows(schema=[], 
+                    data=[], 
+                    rows_count=updated_count)
 
     def _parse_assignment_string(self, assignment_str: str) -> Dict[str, str]:
         assignments = {}
@@ -88,6 +86,15 @@ class UpdateOperator:
         for col, expr in assignments.items():
             updated[col] = self._parse_value(expr, col, schema)
         return updated
+    
+    def _transform_col_name(self, row: Dict[str, Any]):
+        transformed = {}
+        for key, value in row.items():
+            if '.' in key:
+                transformed[key.split('.')[-1]] = value
+            else:
+                transformed[key] = value
+        return transformed
 
     #  parser tipe data value
     def _parse_value(self, value_expr: str, column_name: str, schema: TableSchema):

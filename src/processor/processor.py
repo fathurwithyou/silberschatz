@@ -1,4 +1,3 @@
-from core.models.storage import ComparisonOperator, DataWrite, Condition
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
 from .handlers import TCLHandler, DMLHandler, DDLHandler
@@ -112,65 +111,13 @@ class QueryProcessor(IQueryProcessor):
         
         elif node.type == QueryNodeType.UPDATE:
             target_rows = self.execute(node.children[0], tx_id)
-            return self.update_operator.execute(node, target_rows.data)
+            return self.update_operator.execute(target_rows, node.value)
 
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
             return self.sort_operator.execute(rows, node.value)        
-        # elif node.type == 'JOIN':
-        #     return self.join_operator.execute(node.children, tx_id)
-        # dst
         
-        raise NotImplementedError
-    
-    def _parse_assignments(self, assignment_node) -> dict:
-        if assignment_node is None:
-            return {}
-        
-        if isinstance(assignment_node, dict):
-            return assignment_node
-        
-        if hasattr(assignment_node, 'value') and isinstance(assignment_node.value, dict):
-            return assignment_node.value
-        
-        if hasattr(assignment_node, 'value') and isinstance(assignment_node.value, str):
-            return self._parse_assignment_string(assignment_node.value)
-        
-        raise ValueError("Cannot parse assignment structure")
-    
-    def _parse_assignment_string(self, assignment_str: str) -> dict:
-        assignments = {}
-        # pisah dengan koma (bukan di dalam quotes)
-        parts = []
-        current = []
-        in_quote = False
-        quote_char = None
-        
-        for char in assignment_str:
-            if char in ('"', "'") and not in_quote:
-                in_quote = True
-                quote_char = char
-                current.append(char)
-            elif char == quote_char and in_quote:
-                in_quote = False
-                quote_char = None
-                current.append(char)
-            elif char == ',' and not in_quote:
-                parts.append(''.join(current).strip())
-                current = []
-            else:
-                current.append(char)
-        
-        if current:
-            parts.append(''.join(current).strip())
-        
-        # parse setiap assignment
-        for part in parts:
-            if '=' in part:
-                col, val = part.split('=', 1)
-                assignments[col.strip()] = val.strip()
-        
-        return assignments
+        raise ValueError(f"Unknown query type: {node.type}")
     
     def _get_query_type(self, query_tree: QueryTree) -> str:
         """
