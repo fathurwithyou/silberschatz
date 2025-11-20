@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC , abstractmethod
-from .models import LogRecord, RecoverCriteria
+from .models import LogRecord , RecoverCriteria
 
 class IFailureRecoveryManager(ABC) :
     @abstractmethod
@@ -15,7 +15,5 @@ class IFailureRecoveryManager(ABC) :
 
     @abstractmethod
     def recover(self , criteria : RecoverCriteria) -> list[str] :
-        """
-        Backward recovery berdasarkan kriteria.
-        """
+        """Backward recovery berdasarkan kriteria."""
         raise NotImplementedError
