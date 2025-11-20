@@ -12,10 +12,11 @@ class TestFailureRecoveryManagerServices :
         1b. Initialization With Custom Meta Path
     2. Buffer Configuration
         2a. Buffer Configuration And Minimum
+        2b. Buffer Max Clamped To Minimum One
     3. Meta Read / Write
-        3a. Read Meta Valid
-        3b. Read Meta Fallback On Invalid JSON
-        3c. Read Meta When File Missing Returns Default
+        3a. Read & Write Meta Valid
+        3b. Read & Write Meta Fallback On Invalid JSON
+        3c. Read & Write Meta When File Missing Returns Default
     4. Flush Buffer To Disk
         4a. Flush Buffer To Disk Noop When Empty
         4b. Flush Buffer To Disk Appends After Existing Content
@@ -24,9 +25,14 @@ class TestFailureRecoveryManagerServices :
         5b. Write Log Flush On Commit Even If Buffer Not Full
     6. Save Checkpoint
         6a. Save Checkpoint Updates Last Checkpoint Line
+        6b. Save Checkpoint Stores Active Transactions At Checkpoint
     7. Recover
         7a. Recover Uses Criteria.Match For Each Log Entry
         7b. Recover With Non Existing Transaction
+        7c. Recover Skips Entries Before Last Checkpoint
+        7d. Recover Respects Active Transactions At Checkpoint
+        7e. Recover With Timestamp Criteria Cuts Off Older Entries
+        7f. Recover With Timestamp Criteria When Cutoff After All Entries
     """
 
     def test_init_1a(self , tmp_path : Path) -> None :
@@ -66,10 +72,21 @@ class TestFailureRecoveryManagerServices :
         log_path = tmp_path / "wal.jsonl"
         manager = FailureRecoveryManager(log_path = log_path , buffer_max = 2)
         assert (manager._buffer_max >= 1)
+    
+    def test_buffer_configuration_2b(self , tmp_path : Path) -> None :
+        """
+        2b. Buffer Max Clamped To Minimum One
+        - Jika buffer_max diberikan 0 atau nilai negatif, internal _buffer_max harus di-clamp menjadi 1.
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager_zero = FailureRecoveryManager(log_path = log_path , buffer_max = 0)
+        assert (manager_zero._buffer_max == 1)
+        manager_negative = FailureRecoveryManager(log_path = log_path , buffer_max = -10)
+        assert (manager_negative._buffer_max == 1)
 
     def test_meta_read_write_3a(self , tmp_path : Path) -> None :
         """
-        3a. Read Meta Valid
+        3a. Read & Write Meta Valid
         - Fungsi _read_meta() harus dapat membaca meta yang valid dengan benar.
         """
         log_path = tmp_path / "wal.jsonl"
@@ -82,7 +99,7 @@ class TestFailureRecoveryManagerServices :
 
     def test_meta_read_write_3b(self , tmp_path : Path) -> None :
         """
-        3b. Read Meta Fallback On Invalid JSON
+        3b. Read & Write Meta Fallback On Invalid JSON
         - Jika file meta Invalid JSON, _read_meta() harus melakukan fallback ke minimal last_checkpoint_line = 0.
         """
         log_path = tmp_path / "wal.jsonl"
@@ -95,7 +112,7 @@ class TestFailureRecoveryManagerServices :
 
     def test_meta_read_write_3c(self , tmp_path : Path) -> None :
         """
-        3c. Read Meta When File Missing Returns Default
+        3c. Read & Write Meta When File Missing Returns Default
         - Jika file meta hilang, _read_meta() harus melakukan fallback ke default.
         """
         log_path = tmp_path / "wal.jsonl"
@@ -212,6 +229,31 @@ class TestFailureRecoveryManagerServices :
             assert (meta_after.get("last_checkpoint_line") == 0)
         else :
             assert (meta_after.get("last_checkpoint_line") == len(log_content.splitlines()))
+    
+    def test_save_checkpoint_6b(self , tmp_path : Path) -> None :
+        """
+        6b. Save Checkpoint Stores Active Transactions At Checkpoint
+        - Save checkpoint harus menyimpan daftar transaksi yang masih aktif pada saat checkpoint ke meta["active_transactions_at_checkpoint"], serta menuliskan entry checkpoint di WAL dengan field tersebut.
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 8)
+        record_start_t1 = LogRecord(log_type = LogRecordType.START , transaction_id = 1 , item_name = None , old_value = None , new_value = None , active_transactions = [1])
+        record_change_t1 = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = 10_000 , new_value = 20_000 , active_transactions = [1])
+        record_start_t2 = LogRecord(log_type = LogRecordType.START , transaction_id = 2 , item_name = None , old_value = None , new_value = None , active_transactions = [2])
+        record_change_t2 = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "Employee.age" , old_value = 20 , new_value = 21 , active_transactions = [2])
+        record_commit_t2 = LogRecord(log_type = LogRecordType.COMMIT , transaction_id = 2 , item_name = None , old_value = None , new_value = None , active_transactions = [2])
+        for (entry) in (record_start_t1 , record_change_t1 , record_start_t2 , record_change_t2 , record_commit_t2) :
+            manager.write_log(entry)
+        manager._flush_buffer_to_disk()
+        manager.save_checkpoint()
+        meta = manager._read_meta()
+        active_at_checkpoint = set(meta.get("active_transactions_at_checkpoint" , []))
+        assert (active_at_checkpoint == {1})
+        log_lines = log_path.read_text(encoding = "UTF-8").strip().splitlines()
+        assert (len(log_lines) >= 1)
+        checkpoint_entry = json.loads(log_lines[-1])
+        assert (checkpoint_entry.get("log_type") == "CHECKPOINT")
+        assert (set(checkpoint_entry.get("active_transactions" , [])) == {1})
 
     def test_recover_7a(self , tmp_path : Path) -> None :
         """
@@ -250,5 +292,108 @@ class TestFailureRecoveryManagerServices :
         manager = FailureRecoveryManager(log_path = log_path , buffer_max = 2)
         criteria_not_found = RecoverCriteria.from_transaction(3)
         result = manager.recover(criteria_not_found)
+        assert (isinstance(result , list))
+        assert (len(result) == 0)
+    
+    def test_recover_7c(self , tmp_path : Path) -> None :
+        """
+        7c. Recover Skips Entries Before Last Checkpoint
+        - Setelah ada checkpoint, recover() hanya memproses log mulai dari last_checkpoint_line.
+        - Entry sebelum checkpoint tidak boleh mempengaruhi hasil recover.
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 4)
+        before_entries = [LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = 10_000 , new_value = 20_000 , active_transactions = [1]) , LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "Employee.age" , old_value = 20 , new_value = 21 , active_transactions = [2]) , LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.bonus" , old_value = 0 , new_value = 10 , active_transactions = [1])]
+        for (entry) in (before_entries) :
+            manager.write_log(entry)
+        manager._flush_buffer_to_disk()
+        manager.save_checkpoint()
+        meta = manager._read_meta()
+        last_checkpoint_line = meta.get("last_checkpoint_line")
+        assert (last_checkpoint_line is not None)
+        assert (last_checkpoint_line >= 1)
+        after_entries = [LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary.after_checkpoint" , old_value = 20_000 , new_value = 15_000 , active_transactions = [1]) , LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 3 , item_name = "Employee.level" , old_value = "junior" , new_value = "senior" , active_transactions = [3])]
+        for (entry) in (after_entries) :
+            manager.write_log(entry)
+        manager._flush_buffer_to_disk()
+        criteria_transaction1 = RecoverCriteria.from_transaction(1)
+        result_transaction1 = manager.recover(criteria_transaction1)
+        assert (isinstance(result_transaction1 , list))
+        assert (len(result_transaction1) == 1)
+        criteria_transaction2 = RecoverCriteria.from_transaction(2)
+        result_transaction2 = manager.recover(criteria_transaction2)
+        assert (isinstance(result_transaction2 , list))
+        assert (len(result_transaction2) == 0)
+
+    def test_recover_7d(self , tmp_path : Path) -> None :
+        """
+        7d. Recover Respects Active Transactions At Checkpoint
+        - Transaction yang sudah commit sebelum checkpoint dianggap "committed" dan perubahannya di-skip.
+        - Transaction yang masih aktif pada saat checkpoint akan di-undo / di-restore ketika recover() dijalankan.
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 8)
+        record_start_t1 = LogRecord(log_type = LogRecordType.START , transaction_id = 1 , item_name = None , old_value = None , new_value = None , active_transactions = [1])
+        record_change_t1 = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = 10_000 , new_value = 20_000 , active_transactions = [1])
+        record_commit_t1 = LogRecord(log_type = LogRecordType.COMMIT , transaction_id = 1 , item_name = None , old_value = None , new_value = None , active_transactions = [1])
+        record_start_t2 = LogRecord(log_type = LogRecordType.START , transaction_id = 2 , item_name = None , old_value = None , new_value = None , active_transactions = [2])
+        record_change_t2 = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "Employee.age" , old_value = 20 , new_value = 21 , active_transactions = [2])
+        for (entry) in (record_start_t1 , record_change_t1 , record_commit_t1 , record_start_t2 , record_change_t2) :
+            manager.write_log(entry)
+        manager._flush_buffer_to_disk()
+        manager.save_checkpoint()
+        meta = manager._read_meta()
+        active_at_checkpoint = set(meta.get("active_transactions_at_checkpoint" , []))
+        assert (1 not in active_at_checkpoint)
+        assert (2 in active_at_checkpoint)
+        record_change_t1_after = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = 20_000 , new_value = 30_000 , active_transactions = [1])
+        record_change_t2_after = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "Employee.age" , old_value = 21 , new_value = 22 , active_transactions = [2])
+        manager.write_log(record_change_t1_after)
+        manager.write_log(record_change_t2_after)
+        manager._flush_buffer_to_disk()
+        criteria_transaction1 = RecoverCriteria.from_transaction(1)
+        result_transaction1 = manager.recover(criteria_transaction1)
+        assert (isinstance(result_transaction1 , list))
+        assert (len(result_transaction1) == 1)
+        assert (result_transaction1[0].startswith("SKIP CHANGE for committed transaction 1"))
+        criteria_transaction2 = RecoverCriteria.from_transaction(2)
+        result_transaction2 = manager.recover(criteria_transaction2)
+        assert (isinstance(result_transaction2 , list))
+        assert (len(result_transaction2) == 1)
+        assert ("RESTORE" in result_transaction2[0])
+        assert ("(txn: 2)" in result_transaction2[0])
+
+    def test_recover_7e(self , tmp_path : Path) -> None :
+        """
+        7e. Recover With Timestamp Criteria Cuts Off Older Entries
+        - Dengan kriteria timestamp, recover() hanya memproses entry yang timestamp-nya >= cutoff dan berhenti ketika menemukan entry di bawah cutoff.
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 1)
+        for (i) in range(1 , 6) :
+            record = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = f"Employee.salary#{i}" , old_value = 10_000 + (i - 1) * 1_000 , new_value = 11_000 + (i - 1) * 1_000 , active_transactions = [1])
+            manager.write_log(record)
+        content_lines = log_path.read_text(encoding = "UTF-8").strip().splitlines()
+        assert (len(content_lines) == 5)
+        criteria_ts = RecoverCriteria.from_timestamp(3)
+        result = manager.recover(criteria_ts)
+        assert (isinstance(result , list))
+        assert (len(result) == 3)
+        assert (all(action.startswith("RESTORE") for action in result))
+
+    def test_recover_7f(self , tmp_path : Path) -> None :
+        """
+        7f. Recover With Timestamp Criteria When Cutoff After All Entries
+        - Jika cutoff timestamp lebih besar dari semua timestamp log, recover() tidak memproses entry apa pun (langsung berhenti di entry pertama).
+        """
+        log_path = tmp_path / "wal.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 1)
+        for (i) in range(1 , 4) :
+            record = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = f"Employee.bonus#{i}" , old_value = i * 100 , new_value = i * 200 , active_transactions = [1])
+            manager.write_log(record)
+        content_lines = log_path.read_text(encoding = "UTF-8").strip().splitlines()
+        assert (len(content_lines) == 3)
+        criteria_ts = RecoverCriteria.from_timestamp(10)
+        result = manager.recover(criteria_ts)
         assert (isinstance(result , list))
         assert (len(result) == 0)
