@@ -2,7 +2,7 @@ from typing import List, Optional, Dict
 from src.core.models import ParsedQuery
 from src.core.models.query import QueryTree
 from src.core.models.storage import Statistic
-from src.core.optimizer import IQueryOptimizer
+from src.core import IQueryOptimizer, IStorageManager
 from .parser import QueryParser
 from .cost.cost_model import CostModel
 from .rules import (
@@ -23,7 +23,8 @@ class QueryOptimizer(IQueryOptimizer):
     def __init__(self,
                  rules: Optional[List] = None,
                  statistics: Optional[Dict[str, Statistic]] = None,
-                 max_iterations: int = 10):
+                 max_iterations: int = 10,
+                 storage_manager: Optional[IStorageManager] = None):
 
         # Use default rules if none provided
         if rules is None:
@@ -31,6 +32,7 @@ class QueryOptimizer(IQueryOptimizer):
 
         self._rules = rules
         self._max_iterations = max_iterations
+        self._storage_manager = storage_manager
         self._parser = QueryParser()
 
         if statistics is not None:
@@ -49,8 +51,7 @@ class QueryOptimizer(IQueryOptimizer):
             SelectionCommutativityRule(),
             SelectionDecompositionRule(),
             SelectionThetaJoinRule(),
-            # TODO: Implement storage manager
-            # SelectionJoinDistributionRule(),
+            SelectionJoinDistributionRule(self._storage_manager),
         ]
 
     def parse_query(self, query: str) -> ParsedQuery:
