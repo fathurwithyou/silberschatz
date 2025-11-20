@@ -23,8 +23,8 @@ def cleanup_test_data():
 
 
 def setup_test_environment():
-    optimizer = QueryOptimizer()
     storage_manager = StorageManager("data_test")
+    optimizer = QueryOptimizer(storage_manager=storage_manager)
     ccm = ConcurrencyControlManager("Timestamp")
     frm = FailureRecoveryManager()
     

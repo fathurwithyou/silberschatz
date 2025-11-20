@@ -110,8 +110,8 @@ def _seed_join_tables(storage: StorageManager) -> None:
 @pytest.fixture()
 def processor():
     _cleanup_data_dir()
-    optimizer = QueryOptimizer()
     storage = StorageManager(DATA_DIR)
+    optimizer = QueryOptimizer(storage_manager=storage)
     concurrency = ConcurrencyControlManager("Timestamp")
     failure = FailureRecoveryManager()
     _seed_join_tables(storage)

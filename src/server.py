@@ -22,8 +22,8 @@ class DatabaseServer:
         
     def initialize_components(self, data_dir="data_test"):
         """Initialize all database components."""
-        query_optimizer = QueryOptimizer()
         storage_manager = StorageManager(data_dir)
+        query_optimizer = QueryOptimizer(storage_manager=storage_manager)
         concurrency_manager = ConcurrencyControlManager()
         failure_recovery_manager = FailureRecoveryManager()
         
