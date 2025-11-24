@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple, Dict, Set, Optional
 from src.core.models.query import QueryTree
 from src.core.models.storage import Statistic
 from .cost_model import CostModel
@@ -8,56 +8,101 @@ import math
 
 class JoinOrderingOptimizer:
     
-    def __init__(self, cost_model: CostModel):
+    def __init__(self, cost_model: CostModel, max_join_size: int = 6):
         self.cost_model = cost_model
+        self.max_join_size = max_join_size
     
-    def find_optimal_join_order(self, join_trees: List[QueryTree]) -> QueryTree:
+    def find_optimal_join_order(self, join_trees: List[QueryTree]) -> Optional[QueryTree]:
         if not join_trees:
             return None
         
         if len(join_trees) == 1:
             return join_trees[0]
         
-        # Implementasi simplified dynamic programming
+        # Untuk join kecil, gunakan exhaustive search
+        if len(join_trees) <= min(self.max_join_size, 4):
+            return self.exhaustive_search(join_trees)
+        else:
+            # Untuk join besar, gunakan greedy algorithm
+            return self.greedy_ordering(join_trees)
+    
+    def exhaustive_search(self, join_trees: List[QueryTree]) -> Optional[QueryTree]:
+        if len(join_trees) == 1:
+            return join_trees[0]
+        
         best_tree = None
         best_cost = float('inf')
         
         # Coba berbagai kombinasi urutan join
-        for left_size in range(1, len(join_trees)):
-            for left_combo in itertools.combinations(join_trees, left_size):
-                left_set = set(left_combo)
-                right_set = [t for t in join_trees if t not in left_set]
-                
-                if not right_set:
-                    continue
-                
-                # Bangun join tree untuk subset kiri
-                left_tree = self.build_join_tree(list(left_set))
-                # Bangun join tree untuk subset kanan  
-                right_tree = self.build_join_tree(right_set)
-                
-                # Buat join node
-                join_tree = QueryTree(
-                    type="join",
-                    value="",  # Condition akan di-set nanti
-                    children=[left_tree, right_tree],
-                    parent=None
-                )
-                
-                # Estimate cost
-                cost = self.cost_model.get_cost(join_tree)
-                
-                if cost < best_cost:
-                    best_cost = cost
-                    best_tree = join_tree
+        for perm in itertools.permutations(join_trees):
+            current_tree = self.build_left_deep_tree(list(perm))
+            current_cost = self.cost_model.get_cost(current_tree)
+            
+            if current_cost < best_cost:
+                best_cost = current_cost
+                best_tree = current_tree
         
-        return best_tree if best_tree else self.build_join_tree(join_trees)
+        return best_tree
     
-    def build_join_tree(self, trees: List[QueryTree]) -> QueryTree:
+    def greedy_ordering(self, join_trees: List[QueryTree]) -> QueryTree:
+        if not join_trees:
+            return None
+        
+        tables_with_size = []
+        for tree in join_trees:
+            if tree.type == "table":
+                size = self.cost_model.estimate_input_cardinality(tree)
+                tables_with_size.append((tree, size))
+            else:
+                # Untuk node non-table, gunakan nilai default
+                tables_with_size.append((tree, 1000.0))
+        
+        tables_with_size.sort(key=lambda x: x[1])
+        current_trees = [t[0] for t in tables_with_size]
+        
+        # Greedy join ordering
+        while len(current_trees) > 1:
+            best_cost = float('inf')
+            best_pair = None
+            best_join = None
+            
+            for i in range(len(current_trees)):
+                for j in range(i + 1, len(current_trees)):
+                    left = current_trees[i]
+                    right = current_trees[j]
+                    
+                    join_tree = QueryTree(
+                        type="join",
+                        value="",
+                        children=[left, right],
+                        parent=None
+                    )
+                    
+                    cost = self.cost_model.get_cost(join_tree)
+                    
+                    if cost < best_cost:
+                        best_cost = cost
+                        best_pair = (i, j)
+                        best_join = join_tree
+            
+            # Ganti dua node dengan hasil join-nya
+            if best_join and best_pair:
+                i, j = best_pair
+                new_trees = [best_join]
+                for idx, tree in enumerate(current_trees):
+                    if idx != i and idx != j:
+                        new_trees.append(tree)
+                current_trees = new_trees
+            else:
+                break
+        
+        return current_trees[0] if current_trees else None
+    
+    def build_left_deep_tree(self, trees: List[QueryTree]) -> QueryTree:
+        # Bentuk left-deep: (((A ▷◁ B) ▷◁ C) ▷◁ D)
         if len(trees) == 1:
             return trees[0]
         
-        # Build left-deep tree sebagai fallback
         current = trees[0]
         for i in range(1, len(trees)):
             current = QueryTree(
@@ -68,45 +113,3 @@ class JoinOrderingOptimizer:
             )
         
         return current
-    
-    def greedy_join_ordering(self, tables: List[str], join_conditions: List[Tuple]) -> List[str]:
-        if not tables:
-            return []
-        
-        # Start dengan table terkecil
-        table_stats = {name: self.cost_model.statistics.get(name) for name in tables}
-        current_set = [min(tables, key=lambda t: table_stats[t].n_r if table_stats[t] else float('inf'))]
-        remaining = [t for t in tables if t not in current_set]
-        
-        while remaining:
-            best_table = None
-            best_cost = float('inf')
-            
-            for table in remaining:
-                candidate_set = current_set + [table]
-                cost = self.estimate_join_cost_for_set(candidate_set, join_conditions)
-                
-                if cost < best_cost:
-                    best_cost = cost
-                    best_table = table
-            
-            if best_table:
-                current_set.append(best_table)
-                remaining.remove(best_table)
-            else:
-                # Fallback: tambahkan table pertama yang tersisa
-                current_set.append(remaining[0])
-                remaining = remaining[1:]
-        
-        return current_set
-    
-    def estimate_join_cost_for_set(self, tables: List[str], 
-                                  join_conditions: List[Tuple]) -> float:
-        # Build temporary query tree untuk cost estimation
-        table_trees = [
-            QueryTree(type="table", value=table, children=[], parent=None)
-            for table in tables
-        ]
-        
-        join_tree = self.build_join_tree(table_trees)
-        return self.cost_model.get_cost(join_tree)
