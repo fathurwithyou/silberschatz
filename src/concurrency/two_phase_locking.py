@@ -2,8 +2,14 @@ from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
+from enum import Enum
 import threading
 
+class TransactionState(Enum):
+    ACTIVE = "Active"
+    ABORTED = "Aborted"
+    COMMITTED = "Committed"
+    
 class TwoPhaseLocking(IConcurrencyControlManager):
     def __init__(self):
         self.lock_table = {}    
@@ -19,7 +25,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             tid = self.transaction_counter
 
             self.active_transactions[tid] = {
-                "state": "active",
+                "state": TransactionState.ACTIVE,
                 "locked_items": set()
             }
             self.transaction_timestamps.append(tid)
@@ -41,7 +47,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
             tx = self.active_transactions[transaction_id]
 
-            if tx["state"] == "aborted":
+            if tx["state"] == TransactionState.ABORTED:
                 return Response(False, transaction_id)
 
             all_success = True
@@ -78,11 +84,11 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
         self._handle_queue()
 
-        if tx["state"] == "aborted":
+        if tx["state"] == TransactionState.ABORTED:
             print(f"Transaction {tid} aborted before commit.")
         else:
             print(f"Transaction {tid} committed.")
-            tx["state"] = "committed"
+            tx["state"] = TransactionState.COMMITTED
 
         with self.lock:
             self._release_all_transaction_locks(tid)
@@ -129,7 +135,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             return
 
         tx = self.active_transactions[tid]
-        tx["state"] = "aborted"
+        tx["state"] = TransactionState.ABORTED
 
         print(f"Transaction {tid} aborted.")
 
