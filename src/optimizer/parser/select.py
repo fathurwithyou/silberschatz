@@ -13,11 +13,12 @@ class SelectParser(BaseParser):
         if 'where' in tokens:
             tree = QueryTree(type=QueryNodeType.SELECTION, value=tokens['where'], children=[tree])
 
-        if 'select' in tokens:
-            tree = QueryTree(type=QueryNodeType.PROJECTION, value=tokens['select'], children=[tree])
-
+        # ORDER BY must be evaluated before PROJECTION to access all columns
         if 'order_by' in tokens:
             tree = QueryTree(type=QueryNodeType.ORDER_BY, value=tokens['order_by'], children=[tree])
+
+        if 'select' in tokens:
+            tree = QueryTree(type=QueryNodeType.PROJECTION, value=tokens['select'], children=[tree])
 
         if 'limit' in tokens:
             tree = QueryTree(type=QueryNodeType.LIMIT, value=tokens['limit'], children=[tree])
