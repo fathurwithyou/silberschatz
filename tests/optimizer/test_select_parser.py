@@ -85,6 +85,74 @@ class TestSelectParser:
         assert tree.children[0].type == QueryNodeType.NATURAL_JOIN
         assert tree.children[0].value == ""
 
+        # Verify structure: NATURAL JOIN has two children
+        join_node = tree.children[0]
+        assert len(join_node.children) == 2
+        assert join_node.children[0].type == QueryNodeType.TABLE
+        assert join_node.children[1].type == QueryNodeType.TABLE
+
+    def test_natural_join_with_alias(self, parser):
+        """Test NATURAL JOIN with table aliases."""
+        query = "SELECT * FROM employees AS e NATURAL JOIN departments AS d"
+        tree = parser(query)
+
+        assert tree.type == QueryNodeType.PROJECTION
+        join_node = tree.children[0]
+        assert join_node.type == QueryNodeType.NATURAL_JOIN
+
+        # Both tables should have aliases
+        assert "AS" in join_node.children[0].value
+        assert "AS" in join_node.children[1].value
+
+    def test_multiple_natural_joins(self, parser):
+        """Test chained NATURAL JOINs."""
+        query = "SELECT * FROM employees NATURAL JOIN departments NATURAL JOIN locations"
+        tree = parser(query)
+
+        assert tree.type == QueryNodeType.PROJECTION
+
+        # Root join should be NATURAL_JOIN
+        first_join = tree.children[0]
+        assert first_join.type == QueryNodeType.NATURAL_JOIN
+
+        # Left child should also be a NATURAL_JOIN (chained)
+        left_child = first_join.children[0]
+        assert left_child.type == QueryNodeType.NATURAL_JOIN
+
+        # Verify the chain: (employees NATURAL JOIN departments) NATURAL JOIN locations
+        assert left_child.children[0].type == QueryNodeType.TABLE  # employees
+        assert left_child.children[1].type == QueryNodeType.TABLE  # departments
+        assert first_join.children[1].type == QueryNodeType.TABLE  # locations
+
+    def test_natural_join_case_insensitive(self, parser):
+        """Test that NATURAL JOIN parsing is case-insensitive."""
+        queries = [
+            "SELECT * FROM employees NATURAL JOIN departments",
+            "SELECT * FROM employees natural join departments",
+            "SELECT * FROM employees Natural Join departments",
+        ]
+
+        for query in queries:
+            tree = parser(query)
+            assert tree.type == QueryNodeType.PROJECTION
+            assert tree.children[0].type == QueryNodeType.NATURAL_JOIN
+
+    def test_natural_join_with_where(self, parser):
+        """Test NATURAL JOIN combined with WHERE clause."""
+        query = "SELECT * FROM employees NATURAL JOIN departments WHERE salary > 50000"
+        tree = parser(query)
+
+        assert tree.type == QueryNodeType.PROJECTION
+
+        # Should have selection node
+        selection_node = tree.children[0]
+        assert selection_node.type == QueryNodeType.SELECTION
+        assert selection_node.value == "salary > 50000"
+
+        # Selection's child should be NATURAL_JOIN
+        join_node = selection_node.children[0]
+        assert join_node.type == QueryNodeType.NATURAL_JOIN
+
     def test_select_with_order_by(self, parser):
         """Test SELECT with ORDER BY."""
         query = "SELECT name FROM Employee ORDER BY salary DESC"

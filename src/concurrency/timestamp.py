@@ -136,7 +136,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
             
         return f"object_{hash(str(row))}"
         
-    def _abort_transaction(self,transaction_id: int) -> None:
+    def _abort_transaction(self, transaction_id: int) -> None:
         if transaction_id in self._transactions:
             self._transactions[transaction_id].status = "aborted"
     
