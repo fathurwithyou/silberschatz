@@ -1,6 +1,6 @@
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
-from .handlers import TCLHandler, DMLHandler, DDLHandler
+from .handlers import TCLHandler, DMLHandler, DDLHandler, QueryTypeEnum
 from .operators import (
     ScanOperator,
     SelectionOperator,
@@ -76,9 +76,9 @@ class QueryProcessor(IQueryProcessor):
         Membaca query dan memanggil handler yang sesuai.
         """
         query_type = self._get_query_type(query.tree)
-        if query_type == "DML":
+        if query_type == QueryTypeEnum.DML:
             return self.dml_handler.handle(query)
-        elif query_type == "TCL":
+        elif query_type == QueryTypeEnum.TCL:
             return self.tcl_handler.handle(query)
         else:
             return self.ddl_handler.handle(query)
@@ -120,7 +120,7 @@ class QueryProcessor(IQueryProcessor):
         
         raise ValueError(f"Unknown query type: {node.type}")
     
-    def _get_query_type(self, query_tree: QueryTree) -> str:
+    def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:
         """
         Mengembalikan tipe query berdasarkan pohon query.
         """
@@ -128,11 +128,11 @@ class QueryProcessor(IQueryProcessor):
         ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
         tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
         if query_tree.type in ddl_type:
-            return "DDL"
+            return QueryTypeEnum.DDL
         elif query_tree.type in tcl_type:
-            return "TCL"
+            return QueryTypeEnum.TCL
         else:
-            return "DML"
+            return QueryTypeEnum.DML
 
     def _build_join_condition(
         self, node: QueryTree, left: Rows, right: Rows
