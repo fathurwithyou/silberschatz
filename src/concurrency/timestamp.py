@@ -4,6 +4,7 @@ from typing import Dict, Set
 from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
+from src.core.models.transaction_state import TransactionState
 from datetime import datetime
 import time
 
@@ -23,7 +24,7 @@ class ObjectTimestamp:
 class TransactionInfo:
     transaction_id: int
     timestamp: float
-    status: str = "active"
+    status: str = TransactionState.ACTIVE
     accessed_objects: Set[str] = None
 
     def __post_init__(self):
@@ -46,7 +47,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         transaction_info = TransactionInfo(
             transaction_id = transaction_id,
             timestamp = timestamp,
-            status = "active"
+            status = TransactionState.ACTIVE
         )
 
         self._transactions[transaction_id] = transaction_info
@@ -59,8 +60,8 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         
         transaction = self._transactions[transaction_id]
 
-        if transaction.status == "active":
-            transaction.status = "commited"
+        if transaction.status == TransactionState.ACTIVE:
+            transaction.status = TransactionState.COMMITTED
 
         del self._transactions[transaction_id]
 
@@ -83,7 +84,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         
         transaction = self._transactions[transaction_id]
 
-        if transaction.status == "aborted":
+        if transaction.status == TransactionState.ABORTED:
             return Response(allowed = False, transaction_id = transaction_id)
         
         object_id = self._generate_object_id(row)
@@ -138,5 +139,5 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         
     def _abort_transaction(self, transaction_id: int) -> None:
         if transaction_id in self._transactions:
-            self._transactions[transaction_id].status = "aborted"
+            self._transactions[transaction_id].status = TransactionState.ABORTED
     

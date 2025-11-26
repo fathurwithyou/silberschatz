@@ -2,14 +2,8 @@ from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
-from enum import Enum
+from src.core.models.transaction_state import TransactionState
 import threading
-
-class TransactionState(Enum):
-    ACTIVE = "Active"
-    ABORTED = "Aborted"
-    COMMITTED = "Committed"
-    
 class TwoPhaseLocking(IConcurrencyControlManager):
     def __init__(self):
         self.lock_table = {}    
@@ -29,16 +23,12 @@ class TwoPhaseLocking(IConcurrencyControlManager):
                 "locked_items": set()
             }
             self.transaction_timestamps.append(tid)
-
-        print(f"Transaction {tid} started.")
         return tid
 
     def log_object(self, row: Rows, transaction_id: int):
         with self.lock:
             if transaction_id not in self.active_transactions:
                 return Response(False, transaction_id)
-
-            print(f"Transaction {transaction_id} logged row.")
 
     def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
         with self.lock:
@@ -70,9 +60,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
                 for item_id in acquired:
                     self._drop_lock(transaction_id, item_id)
 
-            status = "Success" if all_success else "Failed"
-            print(f"Transaction {transaction_id} {action.value}: {status}")
-
             return Response(all_success, transaction_id)
     
     def end_transaction(self, tid):
@@ -87,7 +74,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         if tx["state"] == TransactionState.ABORTED:
             print(f"Transaction {tid} aborted before commit.")
         else:
-            print(f"Transaction {tid} committed.")
             tx["state"] = TransactionState.COMMITTED
 
         with self.lock:
@@ -118,7 +104,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
     def _apply_wound_wait(self, requester_tid, item_id, holder_tid):
         if self._is_older(requester_tid, holder_tid):
-            print(f"Transaction {holder_tid} wounded by older {requester_tid}")
             self._abort_transaction(holder_tid)
             return True
 
@@ -126,8 +111,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             "transaction": requester_tid,
             "record_id": item_id
         })
-
-        print(f"Transaction {requester_tid} waiting for {holder_tid}")
         return False
 
     def _abort_transaction(self, tid):
@@ -136,8 +119,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
         tx = self.active_transactions[tid]
         tx["state"] = TransactionState.ABORTED
-
-        print(f"Transaction {tid} aborted.")
 
         self._release_all_transaction_locks(tid)
 
@@ -161,7 +142,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             if lock_info["type"] == "S":
                 lock_info["holders"].add(tid)
                 self.active_transactions[tid]["locked_items"].add(item_id)
-                print(f"Transaction {tid} acquired shared lock on {item_id}")
                 return True
 
         self.lock_table[item_id] = {
@@ -169,8 +149,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             "holders": {tid}
         }
         self.active_transactions[tid]["locked_items"].add(item_id)
-
-        print(f"Transaction {tid} acquired shared lock on {item_id}")
         return True
 
     def _acquire_exclusive_lock(self, tid, item_id):
@@ -189,7 +167,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
                     "type": "X",
                     "holders": tid
                 }
-                print(f"Transaction {tid} upgraded lock on {item_id}")
                 return True
 
         self.lock_table[item_id] = {
@@ -198,7 +175,6 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         }
         self.active_transactions[tid]["locked_items"].add(item_id)
 
-        print(f"Transaction {tid} acquired exclusive lock on {item_id}")
         return True
 
     def _drop_lock(self, tid, item_id):
