@@ -1,10 +1,10 @@
+import threading
 from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response
-from src.core.models.result import Rows
 from src.core.models.transaction_state import TransactionState
 from .lock_type import LockType
-import threading
+
 class TwoPhaseLocking(IConcurrencyControlManager):
     def __init__(self):
         self.lock_table = {}    
@@ -26,12 +26,12 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             self.transaction_timestamps.append(tid)
         return tid
 
-    def log_object(self, row: Rows, transaction_id: int):
+    def log_object(self, table: str, transaction_id: int):
         with self.lock:
             if transaction_id not in self.active_transactions:
                 return Response(False, transaction_id)
 
-    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
+    def validate_object(self, table: str, transaction_id: int, action: Action) -> Response:
         with self.lock:
             if transaction_id not in self.active_transactions:
                 return Response(False, transaction_id)
@@ -41,27 +41,17 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             if tx["state"] == TransactionState.ABORTED:
                 return Response(False, transaction_id)
 
-            all_success = True
-            acquired = []
+            item_id = table
 
-            for item in row.data:
-                item_id = hash(item)
+            if action == Action.READ:
+                ok = self._acquire_shared_lock(transaction_id, item_id)
+            else:
+                ok = self._acquire_exclusive_lock(transaction_id, item_id)
 
-                if action == Action.READ:
-                    ok = self._acquire_shared_lock(transaction_id, item_id)
-                else:
-                    ok = self._acquire_exclusive_lock(transaction_id, item_id)
+            if not ok:
+                self._drop_lock(transaction_id, item_id)
 
-                if not ok:
-                    all_success = False
-                    break
-                acquired.append(item_id)
-
-            if not all_success:
-                for item_id in acquired:
-                    self._drop_lock(transaction_id, item_id)
-
-            return Response(all_success, transaction_id)
+            return Response(ok, transaction_id)
     
     def end_transaction(self, tid):
         with self.lock:
@@ -81,6 +71,14 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             self._release_all_transaction_locks(tid)
             del self.active_transactions[tid]
         return Response(True, tid)
+
+    def get_active_transactions(self) -> tuple[int, list[int]]:
+        with self.lock:
+            active_transactions = [
+                tid for tid, tx in self.active_transactions.items()
+                if tx["state"] == TransactionState.ACTIVE
+            ]
+        return len(active_transactions), active_transactions
 
     # wound-wait    
     def _is_older(self, t1, t2):

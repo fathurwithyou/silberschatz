@@ -1,11 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set
 import threading
 
 from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response
-from src.core.models.result import Rows
 from src.core.models.transaction_state import TransactionState
 
 
@@ -76,7 +75,6 @@ class SnapshotIsolation(IConcurrencyControlManager):
 
             with self._mutex:
                 commit_ts = self._next_timestamp()
-            with self._mutex:
                 for row_id in row_ids:
                     data = tx.local_writes.get(row_id)
                     entry = VersionEntry(data=data, commit_ts=commit_ts, created_by=transaction_id)
@@ -90,62 +88,50 @@ class SnapshotIsolation(IConcurrencyControlManager):
         finally:
             self._release_write_locks(transaction_id, row_ids)
 
-    def log_object(self, row: Rows, transaction_id: int):
-        entries = self._extract_row_entries(row)
+    def log_object(self, table: str, transaction_id: int):
         with self._mutex:
             tx = self._transactions.get(transaction_id)
             if not tx:
                 return Response(False, transaction_id)
 
-            for row_id, record in entries:
-                if row_id not in self._versions:
-                    # Bootstrap an initial committed version at timestamp 0.
-                    self._versions[row_id] = [VersionEntry(data=record, commit_ts=0, created_by=0)]
+            if table not in self._versions:
+                # Bootstrap an initial committed version at timestamp 0.
+                self._versions[table] = [VersionEntry(data=None, commit_ts=0, created_by=0)]
         return Response(True, transaction_id)
 
-    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
-        entries = self._extract_row_entries(row)
-
+    def validate_object(self, table: str, transaction_id: int, action: Action) -> Response:
         with self._mutex:
             tx = self._transactions.get(transaction_id)
             if not tx or tx.state == TransactionState.ABORTED:
                 return Response(False, transaction_id)
 
             if action == Action.READ:
-                for row_id, _ in entries:
-                    tx.read_set.add(row_id)
-                    # Ensure a visible version exists; readers do not take locks.
-                    self._ensure_visible_version(row_id, tx)
+                tx.read_set.add(table)
+                # Ensure a visible version exists; readers do not take locks.
+                self._ensure_visible_version(table, tx)
                 return Response(True, transaction_id)
 
             if action == Action.WRITE:
-                for row_id, record in entries:
-                    tx.write_set.add(row_id)
-                    tx.local_writes[row_id] = record
-                    self._ensure_visible_version(row_id, tx)
+                tx.write_set.add(table)
+                tx.local_writes[table] = None
+                self._ensure_visible_version(table, tx)
                 return Response(True, transaction_id)
 
         return Response(False, transaction_id)
+
+    def get_active_transactions(self) -> tuple[int, list[int]]:
+        with self._mutex:
+            active_transactions = [
+                tid for tid, tx in self._transactions.items()
+                if tx.state == TransactionState.ACTIVE
+            ]
+        return len(active_transactions), active_transactions
 
     # Internal helpers
 
     def _next_timestamp(self) -> int:
         self._logical_clock += 1
         return self._logical_clock
-
-    def _extract_row_entries(self, rows: Rows) -> List[Tuple[str, Any]]:
-        entries: List[Tuple[str, Any]] = []
-        if hasattr(rows, "data") and rows.data:
-            for item in rows.data:
-                entries.append((self._generate_object_id(item), item))
-        return entries
-
-    def _generate_object_id(self, record: Any) -> str:
-        if isinstance(record, dict):
-            if "id" in record:
-                return f"object_{record['id']}"
-            return f"object_{hash(str(sorted(record.items())))}"
-        return f"object_{hash(str(record))}"
 
     def _ensure_visible_version(self, row_id: str, tx: SnapshotTransaction) -> Optional[VersionEntry]:
         """
@@ -158,6 +144,7 @@ class SnapshotIsolation(IConcurrencyControlManager):
             versions = self._versions[row_id]
         # Prioritize the transaction's own uncommitted write.
         if row_id in tx.local_writes:
+            # belum ada commit
             return VersionEntry(data=tx.local_writes[row_id], commit_ts=tx.start_ts, created_by=tx.transaction_id)
 
         # Find the newest version with commit_ts <= start_ts.

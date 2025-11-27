@@ -1,11 +1,9 @@
-from src.core.concurrency_manager import IConcurrencyControlManager
 from dataclasses import dataclass, field
 from typing import Dict, Set, List
+from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response
-from src.core.models.result import Rows
 from src.core.models.transaction_state import TransactionState
-import time
 
 # Untuk menyimpan timestamp setiap data objek
 @dataclass
@@ -56,27 +54,32 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
             print(f"Transaction {transaction_id} ABORTED due to conflict.")
             return Response(allowed=False, transaction_id=transaction_id)
 
-    def log_object(self, row: Rows, transaction_id: int) -> None:
+    def log_object(self, table: str, transaction_id: int) -> None:
         if transaction_id not in self._active_transactions:
             raise ValueError(f"Transaction {transaction_id} not found!")        
         transaction = self._active_transactions[transaction_id]
         if transaction.status != TransactionState.ACTIVE:
             return
-        object_id = self._generate_object_id(row)
-        transaction.read_set.add(object_id)
+        transaction.read_set.add(table)
 
-    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
+    def validate_object(self, table: str, transaction_id: int, action: Action) -> Response:
         if transaction_id not in self._active_transactions:
             return Response(allowed=False, transaction_id=transaction_id)
         transaction = self._active_transactions[transaction_id]
         if transaction.status == TransactionState.ABORTED:
             return Response(allowed=False, transaction_id=transaction_id)
-        object_id = self._generate_object_id(row)
         if action == Action.READ:
-            transaction.read_set.add(object_id)
+            transaction.read_set.add(table)
         elif action == Action.WRITE:
-            transaction.write_set.add(object_id)
+            transaction.write_set.add(table)
         return Response(allowed=True, transaction_id=transaction_id)
+
+    def get_active_transactions(self) -> tuple[int, list[int]]:
+        active_transactions = [
+            tid for tid, tx in self._active_transactions.items()
+            if tx.status == TransactionState.ACTIVE
+        ]
+        return len(active_transactions), active_transactions
 
     # Helper
     def _validate(self, transaction: OCCTransactionInfo) -> bool:
@@ -90,16 +93,6 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
     def _get_next_clock(self) -> int:
         self._logical_clock += 1
         return self._logical_clock
-
-    def _generate_object_id(self, row: Rows) -> str:
-        if hasattr(row, 'data') and row.data:
-            first_row = row.data[0] if isinstance(row.data, list) and row.data else row.data
-            if isinstance(first_row, dict):
-                if 'id' in first_row:
-                    return f"object_{first_row['id']}"
-                return f"object_{hash(str(sorted(first_row.items())))}"
-            return f"object_{hash(str(row))}"
-        return f"object_unknown"
 
 if __name__ == "__main__":
     print("Optimistic Concurrency Control Module Loaded")

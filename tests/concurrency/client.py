@@ -4,7 +4,7 @@ import json
 def client():
     # Server IP and port
     host = '127.0.0.1'
-    port = 5001
+    port = 5000
     
     client_socket = socket.socket() 
     client_socket.connect((host, port))
