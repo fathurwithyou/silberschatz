@@ -1,6 +1,6 @@
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
-from .handlers import TCLHandler, DMLHandler, DDLHandler
+from .handlers import TCLHandler, DMLHandler, DDLHandler, QueryTypeEnum
 from .operators import (
     ScanOperator,
     SelectionOperator,
@@ -45,7 +45,7 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
-        self.update_operator = UpdateOperator(self.ccm, self.storage) 
+        self.update_operator = UpdateOperator(self.ccm, self.storage, self.frm) 
         self.sort_operator = SortOperator()
         # dst
 
@@ -67,8 +67,8 @@ class QueryProcessor(IQueryProcessor):
         query = re.sub(r'\s+', ' ', query.strip()).strip()
         
         parsed_query = self.optimizer.parse_query(query)
-        # optimized_query = self.optimizer.optimize_query(parsed_query)
-        return self._route_query(parsed_query)
+        optimized_query = self.optimizer.optimize_query(parsed_query)
+        return self._route_query(optimized_query)
         
 
     def _route_query(self, query: ParsedQuery):
@@ -76,9 +76,9 @@ class QueryProcessor(IQueryProcessor):
         Membaca query dan memanggil handler yang sesuai.
         """
         query_type = self._get_query_type(query.tree)
-        if query_type == "DML":
+        if query_type == QueryTypeEnum.DML:
             return self.dml_handler.handle(query)
-        elif query_type == "TCL":
+        elif query_type == QueryTypeEnum.TCL:
             return self.tcl_handler.handle(query)
         else:
             return self.ddl_handler.handle(query)
@@ -112,7 +112,7 @@ class QueryProcessor(IQueryProcessor):
         
         elif node.type == QueryNodeType.UPDATE:
             target_rows = self.execute(node.children[0], tx_id)
-            return self.update_operator.execute(target_rows, node.value)
+            return self.update_operator.execute(target_rows, node.value, tx_id)
 
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
@@ -120,7 +120,7 @@ class QueryProcessor(IQueryProcessor):
         
         raise ValueError(f"Unknown query type: {node.type}")
     
-    def _get_query_type(self, query_tree: QueryTree) -> str:
+    def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:
         """
         Mengembalikan tipe query berdasarkan pohon query.
         """
@@ -128,11 +128,11 @@ class QueryProcessor(IQueryProcessor):
         ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
         tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
         if query_tree.type in ddl_type:
-            return "DDL"
+            return QueryTypeEnum.DDL
         elif query_tree.type in tcl_type:
-            return "TCL"
+            return QueryTypeEnum.TCL
         else:
-            return "DML"
+            return QueryTypeEnum.DML
 
     def _build_join_condition(
         self, node: QueryTree, left: Rows, right: Rows
