@@ -1,6 +1,5 @@
-from typing import List, Optional
 from src.core.concurrency_manager import IConcurrencyControlManager
-from src.core.models import Rows, Action, Response
+from src.core.models import Action, Response
 from .two_phase_locking import TwoPhaseLocking
 from .timestamp import TimestampBasedConcurrencyControl
 from .optimistic import OptimisticConcurrencyControl
@@ -46,14 +45,17 @@ class ConcurrencyControlManager(IConcurrencyControlManager):
     def begin_transaction(self) -> int:
         return self._cc_manager.begin_transaction()
 
-    def log_object(self, row: Rows, transaction_id: int) -> None:
-        self._cc_manager.log_object(row, transaction_id)
+    def log_object(self, table: str, transaction_id: int) -> None:
+        self._cc_manager.log_object(table, transaction_id)
 
-    def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
-        return self._cc_manager.validate_object(row, transaction_id, action)
+    def validate_object(self, table: str, transaction_id: int, action: Action) -> Response:
+        return self._cc_manager.validate_object(table, transaction_id, action)
 
     def end_transaction(self, transaction_id: int) -> Response:
         return self._cc_manager.end_transaction(transaction_id)
+
+    def get_active_transactions(self) -> tuple[int, list[int]]:
+        return self._cc_manager.get_active_transactions()
 
 if __name__ == "__main__":
     print("Concurrency Control Manager Module")
