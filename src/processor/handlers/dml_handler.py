@@ -43,6 +43,9 @@ class DMLHandler:
             
             if query.tree.type == QueryNodeType.UPDATE:
                 result.message = "update successful"
+            elif query.tree.type == QueryNodeType.DELETE:
+                result.message = "delete successful"            
+            # self.processor.frm.write_log(result)
             
             if is_implicit:
                 self.processor.frm.write_log(LogRecord(
