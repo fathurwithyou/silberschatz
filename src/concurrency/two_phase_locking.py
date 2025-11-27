@@ -29,23 +29,30 @@ class TwoPhaseLocking(IConcurrencyControlManager):
     def log_object(self, row: Rows, transaction_id: int):
         with self.lock:
             if transaction_id not in self.active_transactions:
-                return Response(False, transaction_id)
-
+                raise ValueError(f"Transaction {transaction_id} not found!")
+            
     def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
         with self.lock:
             if transaction_id not in self.active_transactions:
                 return Response(False, transaction_id)
-
+            
             tx = self.active_transactions[transaction_id]
 
             if tx["state"] == TransactionState.ABORTED:
                 return Response(False, transaction_id)
 
+            is_transaction_waiting = False
+            for entry in self.waiting_queue:
+                if entry["transaction"] == transaction_id:
+                    is_transaction_waiting = True
+            if is_transaction_waiting:
+                return Response(False, transaction_id)
+            
             all_success = True
             acquired = []
 
             for item in row.data:
-                item_id = hash(item)
+                item_id = self._generate_object_id(item)
 
                 if action == Action.READ:
                     ok = self._acquire_shared_lock(transaction_id, item_id)
@@ -64,23 +71,22 @@ class TwoPhaseLocking(IConcurrencyControlManager):
             return Response(all_success, transaction_id)
     
     def end_transaction(self, tid):
-        with self.lock:
+        with self.lock: 
             if tid not in self.active_transactions:
                 return Response(False, tid)
 
-        tx = self.active_transactions[tid]
+            tx = self.active_transactions[tid]
+            allowed = True
+            if tx["state"] == TransactionState.ABORTED:
+                allowed = False
+            else:
+                tx["state"] = TransactionState.COMMITTED
 
-        self._handle_queue()
-
-        if tx["state"] == TransactionState.ABORTED:
-            print(f"Transaction {tid} aborted before commit.")
-        else:
-            tx["state"] = TransactionState.COMMITTED
-
-        with self.lock:
             self._release_all_transaction_locks(tid)
+            
             del self.active_transactions[tid]
-        return Response(True, tid)
+            self._handle_queue()
+            return Response(allowed, tid)
 
     # wound-wait    
     def _is_older(self, t1, t2):
@@ -104,15 +110,24 @@ class TwoPhaseLocking(IConcurrencyControlManager):
 
         return None
 
-    def _apply_wound_wait(self, requester_tid, item_id, holder_tid):
+    def _apply_wound_wait(self, requester_tid, item_id, holder_tid, mode):
         if self._is_older(requester_tid, holder_tid):
             self._abort_transaction(holder_tid)
             return True
 
-        self.waiting_queue.append({
-            "transaction": requester_tid,
-            "record_id": item_id
-        })
+        already_queued = False
+        for entry in self.waiting_queue:
+            if entry["transaction"] == requester_tid and entry["record_id"] == item_id:
+                already_queued = True
+                break
+        
+        if not already_queued:
+            self.waiting_queue.append({
+                "transaction": requester_tid,
+                "record_id": item_id,
+                "mode": mode
+            })
+            
         return False
 
     def _abort_transaction(self, tid):
@@ -134,7 +149,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         conflict = self._has_conflict(tid, item_id, LockType.SHARED)
 
         if conflict:
-            return self._apply_wound_wait(tid, item_id, conflict)
+            return self._apply_wound_wait(tid, item_id, conflict, LockType.SHARED)
 
         if item_id in self.lock_table:
             lock_info = self.lock_table[item_id]
@@ -157,7 +172,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         conflict = self._has_conflict(tid, item_id, LockType.EXCLUSIVE)
 
         if conflict:
-            return self._apply_wound_wait(tid, item_id, conflict)
+            return self._apply_wound_wait(tid, item_id, conflict, LockType.EXCLUSIVE)
 
         if item_id in self.lock_table:
             lock_info = self.lock_table[item_id]
@@ -205,11 +220,37 @@ class TwoPhaseLocking(IConcurrencyControlManager):
                     del self.lock_table[item_id]
 
     def _handle_queue(self):
-        new_queue = []
+        if not self.waiting_queue:
+            return
+        remaining_queue = []
         for entry in self.waiting_queue:
-            item = entry["record_id"]
-            if item not in self.lock_table:
+            tid = entry["transaction"]
+            item_id = entry["record_id"]
+            mode = entry["mode"]
+            
+            if tid not in self.active_transactions or self.active_transactions[tid]["state"] == TransactionState.ABORTED:
                 continue
-            new_queue.append(entry)
 
-        self.waiting_queue = new_queue
+            success = False
+            if mode == LockType.SHARED:
+                success = self._acquire_shared_lock(tid, item_id)
+            else:
+                success = self._acquire_exclusive_lock(tid, item_id)
+            
+            if success:
+                continue
+            else:
+                remaining_queue.append(entry)
+
+        self.waiting_queue = remaining_queue
+
+    def _generate_object_id(self, row: Rows) -> str:
+        if hasattr(row, 'data') and row.data:
+            first_row = row.data[0] if isinstance(row.data, list) and row.data else row.data
+
+            if isinstance(first_row, dict):
+                if 'id' in first_row:
+                    return f"object_{first_row['id']}"
+                return f"object_{hash(str(sorted(first_row.items())))}"
+            
+        return f"object_{hash(str(row))}"
