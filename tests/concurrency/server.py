@@ -10,7 +10,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from src.concurrency import ConcurrencyControlManager
-from src.core.models import Action, Rows
+from src.core.models import Action
 
 
 @dataclass
@@ -49,9 +49,9 @@ class TransactionStream:
         return cls(ordered_ops=ops)
 
 
-def _make_row(item: int) -> Rows:
-    # Wrap item into a Rows object with an id so snapshot/timestamp locking is stable.
-    return Rows(data=[{"id": item}], rows_count=1)
+def _table_name(item: int) -> str:
+    # Use a stable identifier for the accessed table.
+    return f"table_{item}"
 
 
 def apply_concurrency_control(stream: TransactionStream, algorithm: str = "Snapshot") -> List[Tuple[int, str, bool]]:
@@ -77,11 +77,11 @@ def apply_concurrency_control(stream: TransactionStream, algorithm: str = "Snaps
             active[op.tid] = ccm.begin_transaction()
 
         tx_id = active[op.tid]
-        row = _make_row(op.data if op.data is not None else op.tid)
-        ccm.log_object(row, tx_id)
+        table = _table_name(op.data if op.data is not None else op.tid)
+        ccm.log_object(table, tx_id)
 
         action = Action.READ if op.action.upper() == "R" else Action.WRITE
-        response = ccm.validate_object(row, tx_id, action)
+        response = ccm.validate_object(table, tx_id, action)
         results.append((op.tid, op.action.upper(), response.allowed))
 
         if not response.allowed:
@@ -101,7 +101,7 @@ def serve():
     Send newline-separated operations like 'R,1,10' over the socket.
     """
     host: str = "127.0.0.1"
-    port: int = 5001
+    port: int = 5000
 
     server_socket = socket.socket()
     server_socket.bind((host, port))
@@ -116,9 +116,9 @@ def serve():
         print(f"Received data:\n{data}")
 
         stream = TransactionStream.from_lines(data.splitlines())
-        results = apply_concurrency_control(stream, algorithm="OCC")
+        results = apply_concurrency_control(stream, algorithm="Snapshot")
         for tid, action, allowed in results:
-            print(f"T{tid} {action}: {'ALLOWED' if allowed else 'BLOCKED'}")
+            print(f"T{tid} {action}: {'ALLOWED' if allowed else 'ABORTED'}")
 
 if __name__ == "__main__":
     serve()
