@@ -5,8 +5,6 @@ from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
 from src.core.models.transaction_state import TransactionState
-from datetime import datetime
-import time
 
 # Untuk menyimpan timestamp setiap data objek
 @dataclass
@@ -54,9 +52,9 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
 
         return transaction_id
 
-    def end_transaction(self, transaction_id: int) -> None:
+    def end_transaction(self, transaction_id: int) -> Response:
         if transaction_id not in self._transactions:
-            raise ValueError(f"Transaction {transaction_id} not found!")
+            return Response(allowed=False, transaction_id=transaction_id)
         
         transaction = self._transactions[transaction_id]
 
@@ -64,6 +62,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
             transaction.status = TransactionState.COMMITTED
 
         del self._transactions[transaction_id]
+        return Response(allowed=True, transaction_id=transaction_id)
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
         if transaction_id not in self._transactions:
@@ -96,27 +95,25 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         ts_transaction = transaction.timestamp
 
         if action == Action.READ:
-            if ts_transaction >= obj_ts.write_timestamp:
-                obj_ts.read_timestamp = max(obj_ts.read_timestamp, ts_transaction)
-                obj_ts.readers.add(transaction_id)
-                return Response(allowed = True, transaction_id = transaction_id)
-            else:
+            if ts_transaction < obj_ts.write_timestamp:
                 self._abort_transaction(transaction_id)
                 return Response(allowed = False, transaction_id = transaction_id)
+            
+            obj_ts.read_timestamp = max(obj_ts.read_timestamp, ts_transaction)
+            obj_ts.readers.add(transaction_id)
+            return Response(allowed = True, transaction_id = transaction_id)
             
         elif action == Action.WRITE:
             if ts_transaction < obj_ts.read_timestamp:
                 self._abort_transaction(transaction_id)
-                return Response(allowed = False, transaction_id = transaction_id)            
-            elif ts_transaction >= obj_ts.write_timestamp:
-                obj_ts.write_timestamp = ts_transaction
-                return Response(allowed = True, transaction_id = transaction_id)
-            else:
-                if transaction_id not in obj_ts.readers:
-                    return Response(allowed = True, transaction_id = transaction_id)
-                else:
-                    self._abort_transaction(transaction_id)
-                    return Response(allowed = False, transaction_id = transaction_id)
+                return Response(allowed = False, transaction_id = transaction_id)
+            
+            if ts_transaction < obj_ts.write_timestamp:
+                self._abort_transaction(transaction_id)
+                return Response(allowed = False, transaction_id = transaction_id)
+            
+            obj_ts.write_timestamp = ts_transaction
+            return Response(allowed = True, transaction_id = transaction_id)
         
         return Response(allowed = False, transaction_id = transaction_id)
     
@@ -140,4 +137,3 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
     def _abort_transaction(self, transaction_id: int) -> None:
         if transaction_id in self._transactions:
             self._transactions[transaction_id].status = TransactionState.ABORTED
-    
