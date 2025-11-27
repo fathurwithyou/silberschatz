@@ -3,6 +3,7 @@ from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
 from src.core.models.transaction_state import TransactionState
+from .lock_type import LockType
 import threading
 class TwoPhaseLocking(IConcurrencyControlManager):
     def __init__(self):
@@ -87,19 +88,19 @@ class TwoPhaseLocking(IConcurrencyControlManager):
     def _has_conflict(self, requesting_tid, item_id, mode):
         if item_id not in self.lock_table:
             return None
-        
+
         lock_info = self.lock_table[item_id]
         lock_type = lock_info["type"]
-        
-        if lock_type == "X":
+
+        if lock_type == LockType.EXCLUSIVE:
             holder = lock_info["holders"]
             if holder != requesting_tid:
                 return holder
-        if mode == "X" and lock_type == "S":
+        if mode == LockType.EXCLUSIVE and lock_type == LockType.SHARED:
             holders = lock_info["holders"]
             if not (holders == {requesting_tid}):
                 return list(holders)[0]
-            
+
         return None
 
     def _apply_wound_wait(self, requester_tid, item_id, holder_tid):
@@ -129,48 +130,48 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         return Response(False, tid)
 
     def _acquire_shared_lock(self, tid, item_id):
-        conflict = self._has_conflict(tid, item_id, "S")
+        conflict = self._has_conflict(tid, item_id, LockType.SHARED)
 
         if conflict:
             return self._apply_wound_wait(tid, item_id, conflict)
 
         if item_id in self.lock_table:
             lock_info = self.lock_table[item_id]
-            if lock_info["type"] == "X" and lock_info["holders"] == {tid}:
-                return True 
-            
-            if lock_info["type"] == "S":
+            if lock_info["type"] == LockType.EXCLUSIVE and lock_info["holders"] == {tid}:
+                return True
+
+            if lock_info["type"] == LockType.SHARED:
                 lock_info["holders"].add(tid)
                 self.active_transactions[tid]["locked_items"].add(item_id)
                 return True
 
         self.lock_table[item_id] = {
-            "type": "S",
+            "type": LockType.SHARED,
             "holders": {tid}
         }
         self.active_transactions[tid]["locked_items"].add(item_id)
         return True
 
     def _acquire_exclusive_lock(self, tid, item_id):
-        conflict = self._has_conflict(tid, item_id, "X")
+        conflict = self._has_conflict(tid, item_id, LockType.EXCLUSIVE)
 
         if conflict:
             return self._apply_wound_wait(tid, item_id, conflict)
 
         if item_id in self.lock_table:
             lock_info = self.lock_table[item_id]
-            if lock_info["type"] == "X" and lock_info["holders"] == tid:
-                return True 
-            
-            if lock_info["type"] == "S" and lock_info["holders"] == {tid}:
+            if lock_info["type"] == LockType.EXCLUSIVE and lock_info["holders"] == tid:
+                return True
+
+            if lock_info["type"] == LockType.SHARED and lock_info["holders"] == {tid}:
                 self.lock_table[item_id] = {
-                    "type": "X",
+                    "type": LockType.EXCLUSIVE,
                     "holders": tid
                 }
                 return True
 
         self.lock_table[item_id] = {
-            "type": "X",
+            "type": LockType.EXCLUSIVE,
             "holders": tid
         }
         self.active_transactions[tid]["locked_items"].add(item_id)
@@ -180,24 +181,24 @@ class TwoPhaseLocking(IConcurrencyControlManager):
     def _drop_lock(self, tid, item_id):
         if item_id not in self.lock_table:
             return
-        
+
         lock_info = self.lock_table[item_id]
-        
-        if lock_info["type"] == "S":
+
+        if lock_info["type"] == LockType.SHARED:
             lock_info["holders"].discard(tid)
             if not lock_info["holders"]:
                 del self.lock_table[item_id]
-        elif lock_info["type"] == "X":
+        elif lock_info["type"] == LockType.EXCLUSIVE:
             if lock_info["holders"] == tid:
                 del self.lock_table[item_id]
 
     def _release_all_transaction_locks(self, tid):
         for item_id in list(self.lock_table.keys()):
             lock_info = self.lock_table[item_id]
-            
-            if lock_info["type"] == "X" and lock_info["holders"] == tid:
+
+            if lock_info["type"] == LockType.EXCLUSIVE and lock_info["holders"] == tid:
                 del self.lock_table[item_id]
-            elif lock_info["type"] == "S" and tid in lock_info["holders"]:
+            elif lock_info["type"] == LockType.SHARED and tid in lock_info["holders"]:
                 lock_info["holders"].discard(tid)
                 if not lock_info["holders"]:
                     del self.lock_table[item_id]
