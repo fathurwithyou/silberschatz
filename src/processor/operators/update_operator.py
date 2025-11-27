@@ -5,7 +5,9 @@ from src.core.models import (DataWrite,
                              TableSchema, 
                              ComparisonOperator, 
                              Condition, DataType, 
-                             Rows, LogRecord, LogRecordType)
+                             Rows, LogRecord, LogRecordType,
+                             Action)
+from ..exceptions import AbortError
 from ..utils import get_column_from_schema
 
 class UpdateOperator:
@@ -32,6 +34,12 @@ class UpdateOperator:
 
         # update per-row
         updated_count = 0
+        
+        # Validate with CCM before proceeding
+        validate = self.ccm.validate_object(table_name, tx_id, Action.WRITE)
+        if not validate.allowed:
+            raise AbortError(tx_id, table_name, Action.WRITE, 
+                           f"Write access denied by concurrency control manager")
 
         for row in rows.data:
 
@@ -46,7 +54,7 @@ class UpdateOperator:
                 item_name=table_name,
                 old_value=self._transform_col_name(row),
                 new_value=updated_row,
-                active_transactions=None
+                active_transactions=self.ccm.get_active_transactions()[1]
             )
             self.frm.write_log(log_record)
             
