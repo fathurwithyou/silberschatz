@@ -4,6 +4,7 @@ from typing import Dict, Set, List
 from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
+from src.core.models.transaction_state import TransactionState
 import time
 
 # Untuk menyimpan timestamp setiap data objek
@@ -12,7 +13,7 @@ class OCCTransactionInfo:
     transaction_id: int
     start_timestamp: int
     finish_timestamp: int = float('inf')
-    status: str = "active"
+    status: str = TransactionState.ACTIVE
     read_set: Set[str] = field(default_factory=set)
     write_set: Set[str] = field(default_factory=set)
 
@@ -38,26 +39,26 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
         if transaction_id not in self._active_transactions:
             raise ValueError(f"Transaction {transaction_id} not found!")
         transaction = self._active_transactions[transaction_id]
-        if transaction.status != "active":
+        if transaction.status != TransactionState.ACTIVE:
             return
 
         is_valid = self._validate(transaction)
 
         if is_valid: #commit
             transaction.finish_timestamp = self._get_next_clock()
-            transaction.status = "committed"            
+            transaction.status = TransactionState.COMMITTED           
             self._committed_history.append(transaction)            
             del self._active_transactions[transaction_id]
             print(f"Transaction {transaction_id} COMMITTED successfully.")
         else: #abort
-            transaction.status = "aborted"
+            transaction.status = TransactionState.ABORTED
             print(f"Transaction {transaction_id} ABORTED due to conflict.")
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
         if transaction_id not in self._active_transactions:
             raise ValueError(f"Transaction {transaction_id} not found!")        
         transaction = self._active_transactions[transaction_id]
-        if transaction.status != "active":
+        if transaction.status != TransactionState.ACTIVE:
             return
         object_id = self._generate_object_id(row)
         transaction.read_set.add(object_id)
@@ -66,7 +67,7 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
         if transaction_id not in self._active_transactions:
             return Response(allowed=False, transaction_id=transaction_id)
         transaction = self._active_transactions[transaction_id]
-        if transaction.status == "aborted":
+        if transaction.status == TransactionState.ABORTED:
             return Response(allowed=False, transaction_id=transaction_id)
         object_id = self._generate_object_id(row)
         if action == Action.READ:

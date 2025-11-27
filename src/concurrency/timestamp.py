@@ -4,6 +4,7 @@ from typing import Dict, Set
 from src.core.models.action import Action
 from src.core.models.response import Response
 from src.core.models.result import Rows
+from src.core.models.transaction_state import TransactionState
 from datetime import datetime
 import time
 
@@ -12,13 +13,18 @@ import time
 class ObjectTimestamp:
     read_timestamp: float = 0.0
     write_timestamp: float = 0.0
+    readers: Set[int] = None
+    
+    def __post_init__(self):
+        if self.readers is None:
+            self.readers = set()
 
 # Untuk menyimpan informasi transaksi
 @dataclass
 class TransactionInfo:
     transaction_id: int
     timestamp: float
-    status: str = "active"
+    status: str = TransactionState.ACTIVE
     accessed_objects: Set[str] = None
 
     def __post_init__(self):
@@ -41,7 +47,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         transaction_info = TransactionInfo(
             transaction_id = transaction_id,
             timestamp = timestamp,
-            status = "active"
+            status = TransactionState.ACTIVE
         )
 
         self._transactions[transaction_id] = transaction_info
@@ -54,8 +60,8 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         
         transaction = self._transactions[transaction_id]
 
-        if transaction.status == "active":
-            transaction.status = "commited"
+        if transaction.status == TransactionState.ACTIVE:
+            transaction.status = TransactionState.COMMITTED
 
         del self._transactions[transaction_id]
 
@@ -78,7 +84,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         
         transaction = self._transactions[transaction_id]
 
-        if transaction.status == "aborted":
+        if transaction.status == TransactionState.ABORTED:
             return Response(allowed = False, transaction_id = transaction_id)
         
         object_id = self._generate_object_id(row)
@@ -92,20 +98,25 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
         if action == Action.READ:
             if ts_transaction >= obj_ts.write_timestamp:
                 obj_ts.read_timestamp = max(obj_ts.read_timestamp, ts_transaction)
+                obj_ts.readers.add(transaction_id)
                 return Response(allowed = True, transaction_id = transaction_id)
             else:
                 self._abort_transaction(transaction_id)
                 return Response(allowed = False, transaction_id = transaction_id)
             
         elif action == Action.WRITE:
-            if ts_transaction >= obj_ts.read_timestamp and ts_transaction >= obj_ts.write_timestamp:
+            if ts_transaction < obj_ts.read_timestamp:
+                self._abort_transaction(transaction_id)
+                return Response(allowed = False, transaction_id = transaction_id)            
+            elif ts_transaction >= obj_ts.write_timestamp:
                 obj_ts.write_timestamp = ts_transaction
                 return Response(allowed = True, transaction_id = transaction_id)
-            elif ts_transaction >= obj_ts.write_timestamp:
-                return Response(allowed = True, transaction_id = transaction_id)
             else:
-                self._abort_transaction(transaction_id)
-                return Response(allowed = False, transaction_id = transaction_id)
+                if transaction_id not in obj_ts.readers:
+                    return Response(allowed = True, transaction_id = transaction_id)
+                else:
+                    self._abort_transaction(transaction_id)
+                    return Response(allowed = False, transaction_id = transaction_id)
         
         return Response(allowed = False, transaction_id = transaction_id)
     
@@ -124,9 +135,9 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
                     return f"object_{first_row['id']}"
                 return f"object_{hash(str(sorted(first_row.items())))}"
             
-            return f"object_{hash(str(row))}"
+        return f"object_{hash(str(row))}"
         
     def _abort_transaction(self, transaction_id: int) -> None:
         if transaction_id in self._transactions:
-            self._transactions[transaction_id].status = "aborted"
+            self._transactions[transaction_id].status = TransactionState.ABORTED
     
