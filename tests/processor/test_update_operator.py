@@ -2,6 +2,7 @@ import os
 import sys
 import pytest
 from unittest.mock import Mock
+import shutil
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -14,6 +15,9 @@ from src.core.models import (
     Condition,
 )
 from src.processor.operators import UpdateOperator
+from src.storage.storage_manager import StorageManager
+from src.concurrency.concurrency_manager import ConcurrencyControlManager
+from src.failure.failure_recovery_manager import FailureRecoveryManager
 
 
 # -------------------------------------------------------------------------
@@ -21,7 +25,15 @@ from src.processor.operators import UpdateOperator
 # -------------------------------------------------------------------------
 
 def _make_mock_storage_manager():
-    storage = Mock()
+    data_dir = "data_test"
+    abs_data_path = os.path.join(os.path.dirname(__file__), '..', '..', 'src', data_dir)
+    if os.path.exists(abs_data_path):
+        try:
+            shutil.rmtree(abs_data_path)
+        except Exception:
+            pass
+
+    storage = StorageManager(data_directory=data_dir)
 
     schema = TableSchema(
         table_name="employees",
@@ -34,16 +46,23 @@ def _make_mock_storage_manager():
         primary_key="id",
     )
 
-    storage.get_table_schema = Mock(return_value=schema)
-    storage.write_block = Mock(return_value=1)
+    # Create table on disk/storage layer
+    try:
+        storage.create_table(schema)
+    except Exception:
+        # If already exists, drop and recreate
+        try:
+            storage.drop_table(schema.table_name)
+            storage.create_table(schema)
+        except Exception:
+            pass
 
     return storage
 
 
 def _make_mock_ccm():
-    ccm = Mock()
-    ccm.validate_object = Mock()
-    return ccm
+    # Use real concurrency control manager (timestamp by default)
+    return ConcurrencyControlManager("Timestamp")
 
 
 class FakeNode:
@@ -87,73 +106,94 @@ class FakeNode:
 
 def test_update_single_column():
     storage = _make_mock_storage_manager()
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    ccm = _make_mock_ccm()
+    frm = FailureRecoveryManager(log_path="wal_test.jsonl", storage_manager=storage)
+    operator = UpdateOperator(ccm, storage, frm)
+
+    # Seed storage with initial row so updates target existing data
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 2, "name": "A", "salary": 100, "department": "X"}], rows_count=1, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     node = FakeNode("employees", "salary = 65000", "id = 2")
-    rows = Rows(data=[{"id": 2, "name": "A", "salary": 100, "department": "X"}], 
-                rows_count=1, 
-                schema=[storage.get_table_schema("employees")])
+    rows = initial_rows
 
-    result = operator.execute(rows, "salary = 65000")
+    result = operator.execute(rows, "salary = 65000", tx_id=1)
 
     assert result.rows_count == 1
-    call_args = storage.write_block.call_args[0][0]
-    assert call_args.data["salary"] == 65000
+    # verify persisted update
+    persisted = storage.dml_manager.load_all_rows("employees", schema)
+    assert any(r.get("id") == 2 and r.get("salary") == 65000 for r in persisted.data)
 
 
 def test_update_multiple_columns():
     storage = _make_mock_storage_manager()
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    ccm = _make_mock_ccm()
+    frm = FailureRecoveryManager(log_path="wal_test.jsonl", storage_manager=storage)
+    operator = UpdateOperator(ccm, storage, frm)
+
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 1, "name": "A", "salary": 10, "department": "X"}], rows_count=1, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     node = FakeNode("employees", "salary = 70000, department = 'Engineering'", "id = 1")
-    rows = Rows(data=[{"id": 1, "name": "A", "salary": 10, "department": "X"}], 
-                rows_count=1, 
-                schema=[storage.get_table_schema("employees")])
+    rows = initial_rows
 
-    result = operator.execute(rows, "salary = 70000, department = 'Engineering'")
+    result = operator.execute(rows, "salary = 70000, department = 'Engineering'", tx_id=2)
     assert result.rows_count == 1
 
-    call = storage.write_block.call_args[0][0]
-    assert call.data["salary"] == 70000
-    assert call.data["department"] == "Engineering"
+    persisted = storage.dml_manager.load_all_rows("employees", schema)
+    assert any(r.get("id") == 1 and r.get("salary") == 70000 and r.get("department") == "Engineering" for r in persisted.data)
 
 
 def test_update_all_rows_no_where():
     storage = _make_mock_storage_manager()
-    storage.write_block = Mock(return_value=3)  # tiap write memberi 3
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    ccm = _make_mock_ccm()
+    frm = FailureRecoveryManager(log_path="wal_test.jsonl", storage_manager=storage)
+    operator = UpdateOperator(ccm, storage, frm)
+
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 1}, {"id": 2}, {"id": 3}], rows_count=3, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     node = FakeNode("employees", "department = 'Marketing'")
-    rows = Rows(data=[{"id": 1}, {"id": 2}, {"id": 3}], 
-                rows_count=3, 
-                schema=[storage.get_table_schema("employees")])
+    rows = initial_rows
 
-    result = operator.execute(rows, "department = 'Marketing'")
+    result = operator.execute(rows, "department = 'Marketing'", tx_id=3)
 
-    # 3 rows × write_block return(3) = 9
-    assert result.rows_count == 9
+    # should update 3 rows
+    assert result.rows_count == 3
+    persisted = storage.dml_manager.load_all_rows("employees", schema)
+    assert all(r.get("department") == "Marketing" for r in persisted.data)
 
 
 def test_update_with_null_value():
     storage = _make_mock_storage_manager()
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    ccm = _make_mock_ccm()
+    frm = FailureRecoveryManager(log_path="wal_test.jsonl", storage_manager=storage)
+    operator = UpdateOperator(ccm, storage, frm)
+
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 1, "department": "Sales"}], rows_count=1, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     node = FakeNode("employees", "department = NULL", "id = 1")
-    rows = Rows(data=[{"id": 1, "department": "Sales"}], 
-                rows_count=1, 
-                schema=[storage.get_table_schema("employees")])
+    rows = initial_rows
 
-    result = operator.execute(rows, "department = NULL")
+    result = operator.execute(rows, "department = NULL", tx_id=4)
     assert result.rows_count == 1
 
-    call = storage.write_block.call_args[0][0]
-    assert call.data["department"] is None
+    persisted = storage.dml_manager.load_all_rows("employees", schema)
+    assert any(r.get("id") == 1 and r.get("department") is None for r in persisted.data)
 
 
 def test_update_nonexistent_table_raises_error():
     storage = _make_mock_storage_manager()
-    storage.write_block = Mock(side_effect=ValueError("Table 'nope' does not exist"))
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    operator = UpdateOperator(_make_mock_ccm(), storage, FailureRecoveryManager())
 
     node = FakeNode("nope", "x = 1")
     mock_schema = Mock()
@@ -162,34 +202,39 @@ def test_update_nonexistent_table_raises_error():
     rows = Rows(data=[], rows_count=0, schema=[mock_schema])
 
     with pytest.raises(ValueError):
-        operator.execute(rows, "x = 1")
+        operator.execute(rows, "x = 1", tx_id=0)
 
 
 def test_update_nonexistent_column_raises_error():
     storage = _make_mock_storage_manager()
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    operator = UpdateOperator(_make_mock_ccm(), storage, FailureRecoveryManager())
 
     node = FakeNode("employees", "bad_column = 10")
-    rows = Rows(data=[{"id": 1}], 
-                rows_count=1, 
-                schema=[storage.get_table_schema("employees")])
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 1}], rows_count=1, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     with pytest.raises(ValueError):
-        operator.execute(rows, "bad_column = 10")
+        operator.execute(initial_rows, "bad_column = 10", tx_id=5)
 
 
 def test_update_integration_flow():
     storage = _make_mock_storage_manager()
-    operator = UpdateOperator(_make_mock_ccm(), storage)
+    ccm = _make_mock_ccm()
+    frm = FailureRecoveryManager(log_path="wal_test.jsonl", storage_manager=storage)
+    operator = UpdateOperator(ccm, storage, frm)
+
+    schema = storage.get_table_schema("employees")
+    assert schema is not None
+    initial_rows = Rows(data=[{"id": 2, "name": "A", "salary": 10, "department": "X"}], rows_count=1, schema=[schema])
+    storage.dml_manager.save_all_rows("employees", initial_rows, schema)
 
     node = FakeNode("employees", "salary = 80000, department = 'IT'", "id = 2")
-    rows = Rows(data=[{"id": 2, "name": "A", "salary": 10, "department": "X"}], 
-                rows_count=1, 
-                schema=[storage.get_table_schema("employees")])
+    rows = initial_rows
 
-    result = operator.execute(rows, "salary = 80000, department = 'IT'")
+    result = operator.execute(rows, "salary = 80000, department = 'IT'", tx_id=6)
 
     assert result.rows_count == 1
-    call = storage.write_block.call_args[0][0]
-    assert call.data["salary"] == 80000
-    assert call.data["department"] == "IT"
+    persisted = storage.dml_manager.load_all_rows("employees", schema)
+    assert any(r.get("id") == 2 and r.get("salary") == 80000 and r.get("department") == "IT" for r in persisted.data)

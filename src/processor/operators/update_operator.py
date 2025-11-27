@@ -1,14 +1,15 @@
 from typing import Dict, Any
-from src.core import IConcurrencyControlManager, IStorageManager
-from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType, Rows)
+from src.core import IConcurrencyControlManager, IStorageManager, IFailureRecoveryManager
+from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType, Rows, LogRecord, LogRecordType)
 
 
 class UpdateOperator:
-    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager):
+    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager, frm: IFailureRecoveryManager):
         self.ccm = ccm
         self.storage_manager = storage_manager
+        self.frm = frm
 
-    def execute(self, rows: Rows, set_clause: str) -> Rows:
+    def execute(self, rows: Rows, set_clause: str, tx_id: int) -> Rows:
         if len(rows.schema) != 1:
             raise ValueError("UpdateOperator only supports single table updates.")
         
@@ -33,7 +34,18 @@ class UpdateOperator:
             updated_row = self._apply_assignments(row, assignments, schema)
             updated_row = self._transform_col_name(updated_row)
             
-            # condition berbasis PK
+            # Log ke Failure Recovery Manager
+            log_record = LogRecord(
+                log_type=LogRecordType.CHANGE,
+                transaction_id=tx_id,
+                item_name=table_name,
+                old_value=self._transform_col_name(row),
+                new_value=updated_row,
+                active_transactions=None
+            )
+            self.frm.write_log(log_record)
+            
+            # write ke storage
             data_write = DataWrite(
                 table_name=table_name,
                 data=updated_row,

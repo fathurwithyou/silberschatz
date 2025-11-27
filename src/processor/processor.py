@@ -45,7 +45,7 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
-        self.update_operator = UpdateOperator(self.ccm, self.storage) 
+        self.update_operator = UpdateOperator(self.ccm, self.storage, self.frm) 
         self.sort_operator = SortOperator()
         # dst
 
@@ -112,7 +112,7 @@ class QueryProcessor(IQueryProcessor):
         
         elif node.type == QueryNodeType.UPDATE:
             target_rows = self.execute(node.children[0], tx_id)
-            return self.update_operator.execute(target_rows, node.value)
+            return self.update_operator.execute(target_rows, node.value, tx_id)
 
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
