@@ -8,6 +8,7 @@ from .operators import (
     JoinOperator,
     UpdateOperator,
     SortOperator,
+    InsertOperator
 )
 from .validators import SyntaxValidator
 from typing import Optional
@@ -47,6 +48,7 @@ class QueryProcessor(IQueryProcessor):
         self.join_operator = JoinOperator()
         self.update_operator = UpdateOperator(self.ccm, self.storage) 
         self.sort_operator = SortOperator()
+        self.insert_operator = InsertOperator(self.ccm, self.storage)
         # dst
 
     def execute_query(self, query: str) -> ExecutionResult:
@@ -116,7 +118,14 @@ class QueryProcessor(IQueryProcessor):
 
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
-            return self.sort_operator.execute(rows, node.value)        
+            return self.sort_operator.execute(rows, node.value)    
+
+        elif node.type == QueryNodeType.INSERT:
+            return self.insert_operator.execute(
+                self.execute(node.children[0], tx_id),
+                node.value
+            )
+    
         
         raise ValueError(f"Unknown query type: {node.type}")
     
