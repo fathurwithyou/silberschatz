@@ -67,3 +67,9 @@ def get_column_value(row: Dict[str, Any], column_name: str) -> Any:
             return val
     
     raise ValueError(f"Column '{column_name}' not found in row")
+
+def get_column_from_schema(schema: TableSchema, column_name: str):
+    for col in schema.columns:
+        if col.name == column_name or column_name.endswith(f".{col.name}"):
+            return col
+    raise ValueError(f"Column '{column_name}' not found in schema '{schema.table_name}'")
