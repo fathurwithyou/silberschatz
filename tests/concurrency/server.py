@@ -70,7 +70,7 @@ def apply_concurrency_control(stream: TransactionStream, algorithm: str = "Snaps
                 results.append((op.tid, "COMMIT", False))
                 continue
             response = ccm.end_transaction(tx)
-            results.append((op.tid, "COMMIT", True))
+            results.append((op.tid, "COMMIT", bool(response.allowed)))
             continue
 
         if op.tid not in active:
