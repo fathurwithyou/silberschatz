@@ -1,7 +1,12 @@
 from typing import Dict, Any
 from src.core import IConcurrencyControlManager, IStorageManager, IFailureRecoveryManager
-from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType, Rows, LogRecord, LogRecordType)
-
+from src.core.models import (DataWrite, 
+                             DataRetrieval,
+                             TableSchema, 
+                             ComparisonOperator, 
+                             Condition, DataType, 
+                             Rows, LogRecord, LogRecordType)
+from ..utils import get_column_from_schema
 
 class UpdateOperator:
     def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager, frm: IFailureRecoveryManager):
@@ -93,11 +98,38 @@ class UpdateOperator:
         return assignments
 
     # apply assignment ke row lama
-    def _apply_assignments(self, row, assignments, schema):
+    def _apply_assignments(self, row: Dict[str, Any], assignments: Dict[str, str], schema: TableSchema) -> Dict[str, Any]:
         updated = row.copy()
+        table_name = schema.table_name
+        pk_column = schema.primary_key
+        
         for col, expr in assignments.items():
             updated[col] = self._parse_value(expr, col, schema)
+            column = get_column_from_schema(schema, col)
+            if (updated[col] is None) and (not column.nullable):
+                raise ValueError(f"Column '{col}' cannot be set to NULL due to NOT NULL constraint.")
+            
+            if column.primary_key and pk_column is not None:
+                new_pk_value = updated[col]
+                old_pk_value = row.get(col)
+                
+                if new_pk_value != old_pk_value:
+                    if self._check_pk_conflict(table_name, pk_column, new_pk_value):
+                        raise ValueError(f"UPDATE causes PK conflict '{pk_column}'={new_pk_value}")
+            
         return updated
+    
+    def _check_pk_conflict(self, table_name: str, pk_column: str, new_pk_value: Any) -> bool:
+        data_retrieval = DataRetrieval(
+            table_name=table_name,
+            columns=[pk_column],
+            conditions=[Condition(pk_column, ComparisonOperator.EQ, new_pk_value)],
+            limit=1
+        )
+        
+        result = self.storage_manager.read_block(data_retrieval)
+        
+        return result.rows_count > 0
     
     def _transform_col_name(self, row: Dict[str, Any]):
         transformed = {}
