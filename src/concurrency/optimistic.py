@@ -12,7 +12,7 @@ import time
 class OCCTransactionInfo:
     transaction_id: int
     start_timestamp: int
-    finish_timestamp: int = float('inf')
+    finish_timestamp: int = 0 
     status: str = TransactionState.ACTIVE
     read_set: Set[str] = field(default_factory=set)
     write_set: Set[str] = field(default_factory=set)
@@ -47,7 +47,8 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
         if is_valid: #commit
             transaction.finish_timestamp = self._get_next_clock()
             transaction.status = TransactionState.COMMITTED           
-            self._committed_history.append(transaction)            
+            if transaction.write_set:
+                self._committed_history.append(transaction)
             del self._active_transactions[transaction_id]
             print(f"Transaction {transaction_id} COMMITTED successfully.")
             return Response(allowed=True, transaction_id=transaction_id)
@@ -57,13 +58,8 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
             return Response(allowed=False, transaction_id=transaction_id)
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
-        if transaction_id not in self._active_transactions:
-            raise ValueError(f"Transaction {transaction_id} not found!")        
-        transaction = self._active_transactions[transaction_id]
-        if transaction.status != TransactionState.ACTIVE:
-            return
-        object_id = self._generate_object_id(row)
-        transaction.read_set.add(object_id)
+        # dipass untuk mencegah konflik palsu (Write dianggap Read), pencatatan set ditangani spesifik di validate_object
+        pass
 
     def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
         if transaction_id not in self._active_transactions:
