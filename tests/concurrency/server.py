@@ -111,13 +111,14 @@ def serve():
     conn, address = server_socket.accept()
     print(f"Connection from: {address}")
 
-    data = conn.recv(4096).decode()
-    print(f"Received data:\n{data}")
+    while True:
+        data = conn.recv(4096).decode()
+        print(f"Received data:\n{data}")
 
-    stream = TransactionStream.from_lines(data.splitlines())
-    results = apply_concurrency_control(stream, algorithm="OCC")
-    for tid, action, allowed in results:
-        print(f"T{tid} {action}: {'ALLOWED' if allowed else 'BLOCKED'}")
+        stream = TransactionStream.from_lines(data.splitlines())
+        results = apply_concurrency_control(stream, algorithm="OCC")
+        for tid, action, allowed in results:
+            print(f"T{tid} {action}: {'ALLOWED' if allowed else 'BLOCKED'}")
 
 if __name__ == "__main__":
     serve()
