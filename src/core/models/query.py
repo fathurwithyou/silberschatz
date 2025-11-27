@@ -40,6 +40,8 @@ class QueryNodeType(str, Enum):
     # DDL operations
     CREATE_TABLE = "create_table"
     DROP_TABLE = "drop_table"
+    CREATE_INDEX = "create_index"
+    DROP_INDEX = "drop_index"
 
     # Transaction operations
     BEGIN_TRANSACTION = "begin_transaction"
