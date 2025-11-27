@@ -4,7 +4,7 @@ from .select import SelectParser
 from .update import UpdateParser
 from .delete import DeleteParser
 from .insert import InsertParser
-from .ddl import CreateParser, DropParser
+from .ddl import CreateParser, DropParser, CreateIndexParser, DropIndexParser
 
 
 class QueryParser:
@@ -17,6 +17,8 @@ class QueryParser:
         self.insert_parser = InsertParser()
         self.create_parser = CreateParser()
         self.drop_parser = DropParser()
+        self.create_index_parser = CreateIndexParser()
+        self.drop_index_parser = DropIndexParser()
 
     def __call__(self, query: str) -> ParsedQuery:
         """Parse SQL query into AST."""
@@ -31,10 +33,14 @@ class QueryParser:
             tree = self.delete_parser(query)
         elif statement_type == 'INSERT':
             tree = self.insert_parser(query)
-        elif statement_type == 'CREATE':
+        elif statement_type == 'CREATE_TABLE':
             tree = self.create_parser(query)
-        elif statement_type == 'DROP':
+        elif statement_type == 'CREATE_INDEX':
+            tree = self.create_index_parser(query)
+        elif statement_type == 'DROP_TABLE':
             tree = self.drop_parser(query)
+        elif statement_type == 'DROP_INDEX':
+            tree = self.drop_index_parser(query)
         elif statement_type == 'BEGIN':
             tree = QueryTree(type=QueryNodeType.BEGIN_TRANSACTION, value='', children=[])
         elif statement_type == 'COMMIT':
@@ -57,9 +63,17 @@ class QueryParser:
         elif query_upper.startswith('INSERT'):
             return 'INSERT'
         elif query_upper.startswith('CREATE'):
-            return 'CREATE'
+            # Distinguish between CREATE TABLE and CREATE INDEX
+            if 'INDEX' in query_upper.split('TABLE')[0]:
+                return 'CREATE_INDEX'
+            else:
+                return 'CREATE_TABLE'
         elif query_upper.startswith('DROP'):
-            return 'DROP'
+            # Distinguish between DROP TABLE and DROP INDEX
+            if 'INDEX' in query_upper.split('TABLE')[0]:
+                return 'DROP_INDEX'
+            else:
+                return 'DROP_TABLE'
         elif query_upper.startswith('BEGIN'):
             return 'BEGIN'
         elif query_upper.startswith('COMMIT'):
