@@ -3,7 +3,6 @@ import math
 from typing import Dict, Any, Set, Optional
 from src.core.models import TableSchema, Rows, DataType
 from src.storage.serializer import Serializer
-from src.storage.ddl import DDLManager
 
 # Block size satuan 4KB 
 BLOCK_SIZE: int = 4096
@@ -11,7 +10,6 @@ BLOCK_SIZE: int = 4096
 class StatisticsManager:
     def __init__(self, data_directory: str = "data"):
         self.data_directory = data_directory
-        self.ddl_manager = DDLManager(data_directory)
         self.serializer = Serializer()
     
     def get_tuple_count(self, rows: Rows) -> int:
