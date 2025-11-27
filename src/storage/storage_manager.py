@@ -13,6 +13,7 @@ from src.core.models import (
 from src.storage.ddl import DDLManager
 from src.storage.dml import DMLManager
 from src.storage.statistics import StatisticsManager
+from src.storage.index import BPlusTreeIndex, BaseIndex
 
 
 class StorageManager(IStorageManager):
@@ -22,6 +23,7 @@ class StorageManager(IStorageManager):
         self.ddl_manager = DDLManager(f"src/{self.data_directory}")
         self.dml_manager = DMLManager(f"src/{self.data_directory}")
         self.statistics_manager = StatisticsManager(f"src/{self.data_directory}")
+        self.indexes: Dict[tuple, BaseIndex] = {}  # (table, column) -> Index
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         schema = self.ddl_manager.load_schema(data_retrieval.table_name)
@@ -166,13 +168,58 @@ class StorageManager(IStorageManager):
         )
     
     def set_index(self, table: str, column: str, index_type: str) -> None:
-        pass
+        """
+        Masukkan:
+            table: Table name
+            column: Column name
+            index_type: 'b_plus_tree', 'btree', 'b+tree', atau 'hash'
+        """
+        schema = self.ddl_manager.load_schema(table)
+        if schema is None:
+            raise ValueError(f"Table '{table}' does not exist")
+
+        column_exists = any(col.name == column for col in schema.columns)
+        if not column_exists:
+            raise ValueError(f"Column '{column}' does not exist in table '{table}'")
+
+        if (table, column) in self.indexes:
+            raise ValueError(f"Index already exists on {table}.{column}")
+
+        index_type_lower = index_type.lower()
+        if index_type_lower in ['b_plus_tree', 'btree', 'b+tree']:
+            index = BPlusTreeIndex(table, column, f"src/{self.data_directory}")
+        else:
+            raise ValueError(f"Invalid index type '{index_type}'. Use 'b_plus_tree', 'btree', 'b+tree', or 'hash'")
+
+        self.indexes[(table, column)] = index
     
     def drop_index(self, table: str, column: str) -> None:
-        pass
+        """
+        Masukkan:
+            table: Table name
+            column: Column name
+
+        Raises:
+            ValueError: If index doesn't exist
+        """
+        if (table, column) not in self.indexes:
+            raise ValueError(f"No index exists on {table}.{column}")
+
+        index = self.indexes[(table, column)]
+        index.destroy()
+
+        del self.indexes[(table, column)]
     
     def has_index(self, table: str, column: str) -> bool:
-        pass
+        """
+        Masukkan:
+            table: Table name
+            column: Column name
+
+        Returns:
+            True if index exists, False otherwise
+        """
+        return (table, column) in self.indexes
     
     def create_table(self, schema: TableSchema) -> None:
         if self.ddl_manager.schema_exists(schema.table_name):
