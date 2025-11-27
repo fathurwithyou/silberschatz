@@ -17,7 +17,7 @@ class IConcurrencyControlManager(ABC):
         pass
 
     @abstractmethod
-    def end_transaction(self, transaction_id: int):
+    def end_transaction(self, transaction_id: int) -> Response:
         """
         Ends a transaction, commits or aborts it based on its state.
         """

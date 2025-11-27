@@ -80,6 +80,7 @@ class TwoPhaseLocking(IConcurrencyControlManager):
         with self.lock:
             self._release_all_transaction_locks(tid)
             del self.active_transactions[tid]
+        return Response(True, tid)
 
     # wound-wait    
     def _is_older(self, t1, t2):

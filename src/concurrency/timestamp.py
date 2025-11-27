@@ -54,9 +54,9 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
 
         return transaction_id
 
-    def end_transaction(self, transaction_id: int) -> None:
+    def end_transaction(self, transaction_id: int) -> Response:
         if transaction_id not in self._transactions:
-            raise ValueError(f"Transaction {transaction_id} not found!")
+            return Response(allowed=False, transaction_id=transaction_id)
         
         transaction = self._transactions[transaction_id]
 
@@ -64,6 +64,7 @@ class TimestampBasedConcurrencyControl(IConcurrencyControlManager):
             transaction.status = TransactionState.COMMITTED
 
         del self._transactions[transaction_id]
+        return Response(allowed=True, transaction_id=transaction_id)
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
         if transaction_id not in self._transactions:

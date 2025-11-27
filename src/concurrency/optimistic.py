@@ -35,12 +35,12 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
         self._active_transactions[transaction_id] = transaction_info
         return transaction_id
 
-    def end_transaction(self, transaction_id: int) -> None:
+    def end_transaction(self, transaction_id: int) -> Response:
         if transaction_id not in self._active_transactions:
-            raise ValueError(f"Transaction {transaction_id} not found!")
+            return Response(allowed=False, transaction_id=transaction_id)
         transaction = self._active_transactions[transaction_id]
         if transaction.status != TransactionState.ACTIVE:
-            return
+            return Response(allowed=False, transaction_id=transaction_id)
 
         is_valid = self._validate(transaction)
 
@@ -50,9 +50,11 @@ class OptimisticConcurrencyControl(IConcurrencyControlManager):
             self._committed_history.append(transaction)            
             del self._active_transactions[transaction_id]
             print(f"Transaction {transaction_id} COMMITTED successfully.")
+            return Response(allowed=True, transaction_id=transaction_id)
         else: #abort
             transaction.status = TransactionState.ABORTED
             print(f"Transaction {transaction_id} ABORTED due to conflict.")
+            return Response(allowed=False, transaction_id=transaction_id)
 
     def log_object(self, row: Rows, transaction_id: int) -> None:
         if transaction_id not in self._active_transactions:

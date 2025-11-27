@@ -52,8 +52,8 @@ class ConcurrencyControlManager(IConcurrencyControlManager):
     def validate_object(self, row: Rows, transaction_id: int, action: Action) -> Response:
         return self._cc_manager.validate_object(row, transaction_id, action)
 
-    def end_transaction(self, transaction_id: int):
-        self._cc_manager.end_transaction(transaction_id)
+    def end_transaction(self, transaction_id: int) -> Response:
+        return self._cc_manager.end_transaction(transaction_id)
 
 if __name__ == "__main__":
     print("Concurrency Control Manager Module")
