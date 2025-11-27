@@ -39,6 +39,43 @@ class DatabaseClient:
         except Exception as e:
             raise ConnectionError(f"Communication error: {e}")
     
+    def handle_meta_command(self, query: str) -> bool:
+        query = query.strip()
+        
+        if query == '\\?' or query == '\\help':
+            self._handle_help()
+            return True
+        elif query == '\\d' or query == '\\dt':
+            try:
+                response = self.send_query('\\dt')
+                print(response)
+            except Exception as e:
+                print(f"Error retrieving table list: {e}")
+            return True
+        elif query.startswith('\\d '):
+            table_name = query[3:].strip()
+            if table_name:
+                try:
+                    response = self.send_query(f'\\d {table_name}')
+                    print(response)
+                except Exception as e:
+                    print(f"Error describing table '{table_name}': {e}")
+            return True
+        
+        return False
+    
+    def _handle_help(self):
+        """Handle \\? or \\help command - show available meta commands"""
+        print("Available meta-commands:")
+        print("  \\d                 list tables")
+        print("  \\dt                list tables")
+        print("  \\d [NAME]          describe table")
+        print("  \\? or \\help        show this help")
+        print("  quit, exit         quit the client")
+        print()
+        print("For SQL help, type your SQL commands followed by semicolon.")
+        print()
+    
     def process_input(self, query: str) -> list:
         """Process user input and return list of queries to execute."""
         if ';' not in query:
@@ -64,6 +101,7 @@ class DatabaseClient:
         try:
             print(f"Connected to server at {self.host}:{self.port}")
             print("Type 'quit' or 'exit' to disconnect")
+            print("Type '\\?' or '\\help' for available meta-commands")
             print("-" * 50)
             
             while True:
@@ -72,6 +110,11 @@ class DatabaseClient:
                 if query.lower() in ['quit', 'exit', '']:
                     print("Disconnecting...")
                     break
+                
+                # Handle meta commands locally first
+                if query.startswith('\\'):
+                    if self.handle_meta_command(query):
+                        continue
                 
                 queries_to_execute = self.process_input(query)
                 
