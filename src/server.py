@@ -41,8 +41,9 @@ class DatabaseServer:
         if not result.data:
             return "No Data returned.\n"
         
-        if result.message and result.message == "update successful":
-            output.append(f"UPDATE {result.data.rows_count}")
+        if result.message and (result.message == "update successful" or result.message == "delete successful"):
+            action = "UPDATE" if "update" in result.message else "DELETE"
+            output.append(f"{action} {result.data.rows_count}")
             output.append(f"Time: {execution_time * 1000:.4f} ms")
             return "\n".join(output)
         
