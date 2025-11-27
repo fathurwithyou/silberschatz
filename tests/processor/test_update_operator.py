@@ -61,8 +61,14 @@ def _make_mock_storage_manager():
 
 
 def _make_mock_ccm():
-    # Use real concurrency control manager (timestamp by default)
-    return ConcurrencyControlManager("Timestamp")
+    # Create a mock that always allows operations for testing
+    from unittest.mock import Mock
+    from src.core.models.response import Response
+    
+    mock_ccm = Mock()
+    mock_ccm.validate_object.return_value = Response(allowed=True, transaction_id=1)
+    mock_ccm.get_active_transactions.return_value = (None, [1, 2, 3])
+    return mock_ccm
 
 
 class FakeNode:
