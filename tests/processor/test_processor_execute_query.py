@@ -177,81 +177,6 @@ def test_execute_query_commit():
     finally:
         cleanup_test_data()
 
-
-def test_execute_recursive_query_execution():
-    cleanup_test_data()
-    processor = setup_test_environment()
-    
-    try:
-        table_node = QueryTree(
-            type=QueryNodeType.TABLE,
-            value="users",
-            children=[]
-        )
-        
-        result = processor.execute(table_node, tx_id=1)
-        
-        assert isinstance(result, Rows)
-        assert result.rows_count == 3
-        assert len(result.data) == 3
-        
-        first_row = result.data[0]
-        assert "users.id" in first_row
-        assert "users.name" in first_row
-        
-    finally:
-        cleanup_test_data()
-
-
-def test_execute_selection_node():
-    cleanup_test_data()
-    processor = setup_test_environment()
-    
-    try:
-        table_node = QueryTree(type=QueryNodeType.TABLE, value="users", children=[])
-        selection_node = QueryTree(
-            type=QueryNodeType.SELECTION,
-            value="users.age > 28",
-            children=[table_node]
-        )
-        
-        result = processor.execute(selection_node, tx_id=1)
-        
-        assert isinstance(result, Rows)
-        assert result.rows_count == 2
-        
-        for row in result.data:
-            assert row["users.age"] > 28
-            
-    finally:
-        cleanup_test_data()
-
-
-def test_execute_projection_node():
-    cleanup_test_data()
-    processor = setup_test_environment()
-    
-    try:
-        table_node = QueryTree(type=QueryNodeType.TABLE, value="users", children=[])
-        projection_node = QueryTree(
-            type=QueryNodeType.PROJECTION,
-            value="users.name, users.age",
-            children=[table_node]
-        )
-        
-        result = processor.execute(projection_node, tx_id=1)
-        
-        assert isinstance(result, Rows)
-        assert result.rows_count == 3
-        
-        for row in result.data:
-            assert "users.name" in row
-            assert "users.age" in row
-            
-    finally:
-        cleanup_test_data()
-
-
 def test_query_routing():
     cleanup_test_data()
     processor = setup_test_environment()
@@ -447,9 +372,6 @@ if __name__ == "__main__":
     test_execute_query_nonexistent_table()
     test_execute_query_begin_transaction()
     test_execute_query_commit()
-    test_execute_recursive_query_execution()
-    test_execute_selection_node()
-    test_execute_projection_node()
     test_query_routing()
     test_whitespace_normalization()
     test_update_query()

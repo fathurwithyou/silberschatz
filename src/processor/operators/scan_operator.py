@@ -16,9 +16,9 @@ class ScanOperator:
             raise ValueError(f"Table '{table_name}' does not exist")
         table_schema.table_name = table_alias
         
-        # validate = self.ccm.validate_object(table_name, tx_id, Action.READ)
-        # if not validate.allowed:
-        #     raise AbortError(tx_id, table_name, Action.READ, "Read access denied by concurrency control manager")
+        validate = self.ccm.validate_object(table_name, tx_id, Action.READ)
+        if not validate.allowed:
+            raise AbortError(tx_id, table_name, Action.READ, "Read access denied by concurrency control manager")
         
         data_retrieval = DataRetrieval(
             table_name=table_name,
