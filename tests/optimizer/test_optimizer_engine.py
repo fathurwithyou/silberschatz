@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 from src.core.models.query import QueryTree, ParsedQuery
 from src.optimizer.optimizer import QueryOptimizer
 from src.optimizer.rules.join import JoinCommutativityRule
@@ -10,7 +11,10 @@ class TestQueryOptimizer(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.rules = [JoinCommutativityRule()]
-        self.optimizer = QueryOptimizer(rules=self.rules, max_iterations=10)
+        self.mock_storage = Mock()
+        self.optimizer = QueryOptimizer(
+            storage_manager=self.mock_storage, rules=self.rules, max_iterations=10
+        )
 
     def test_init_with_rules(self):
         """Test optimizer initialization with rules."""
@@ -20,72 +24,70 @@ class TestQueryOptimizer(unittest.TestCase):
     def test_optimize_applies_single_rule(self):
         """Test that optimize applies rules to query tree."""
         rule = JoinCommutativityRule()
-        optimizer = QueryOptimizer(rules=[rule], max_iterations=1)
+        optimizer = QueryOptimizer(
+            storage_manager=Mock(), rules=[rule], max_iterations=1
+        )
 
-        # Build query: Employee ⋈ Department
-        employee = QueryTree(type='table', value='Employee', children=[])
-        department = QueryTree(type='table', value='Department', children=[])
-        join = QueryTree(type='join', value='cond', children=[employee, department])
+        employee = QueryTree(type="table", value="Employee", children=[])
+        department = QueryTree(type="table", value="Department", children=[])
+        join = QueryTree(type="join", value="cond", children=[employee, department])
         employee.parent = join
         department.parent = join
 
         parsed = ParsedQuery(tree=join, query="test query")
         result = optimizer.optimize_query(parsed)
 
-        # After 1 iteration, JoinCommutativity should swap children
-        self.assertEqual(result.tree.type, 'join')
-        # Children should be swapped
-        self.assertEqual(result.tree.children[0].value, 'Department')
-        self.assertEqual(result.tree.children[1].value, 'Employee')
+        self.assertEqual(result.tree.type, "join")
+
+        self.assertEqual(result.tree.children[0].value, "Department")
+        self.assertEqual(result.tree.children[1].value, "Employee")
 
     def test_optimize_stops_when_no_changes(self):
         """Test that optimizer stops when no more changes are made."""
-        # A simple table node that can't be optimized
-        table = QueryTree(type='table', value='Employee', children=[])
+
+        table = QueryTree(type="table", value="Employee", children=[])
         parsed = ParsedQuery(tree=table, query="SELECT * FROM Employee")
 
         result = self.optimizer.optimize_query(parsed)
 
-        # Should return the same tree
-        self.assertEqual(result.tree.type, 'table')
-        self.assertEqual(result.tree.value, 'Employee')
+        self.assertEqual(result.tree.type, "table")
+        self.assertEqual(result.tree.value, "Employee")
 
     def test_optimize_with_multiple_rules(self):
         """Test optimizer with multiple rules."""
-        rules = [
-            JoinCommutativityRule()
-        ]
-        optimizer = QueryOptimizer(rules=rules, max_iterations=1)
+        rules = [JoinCommutativityRule()]
+        optimizer = QueryOptimizer(
+            storage_manager=Mock(), rules=rules, max_iterations=1
+        )
 
-        # Build query: Employee ⋈ Department
-        employee = QueryTree(type='table', value='Employee', children=[])
-        department = QueryTree(type='table', value='Department', children=[])
-        join = QueryTree(type='join', value='cond', children=[employee, department])
+        employee = QueryTree(type="table", value="Employee", children=[])
+        department = QueryTree(type="table", value="Department", children=[])
+        join = QueryTree(type="join", value="cond", children=[employee, department])
         employee.parent = join
         department.parent = join
 
         parsed = ParsedQuery(tree=join, query="test query")
         result = optimizer.optimize_query(parsed)
 
-        # After 1 iteration, join children should be swapped
-        self.assertEqual(result.tree.type, 'join')
-        self.assertEqual(result.tree.children[0].value, 'Department')
-        self.assertEqual(result.tree.children[1].value, 'Employee')
+        self.assertEqual(result.tree.type, "join")
+        self.assertEqual(result.tree.children[0].value, "Department")
+        self.assertEqual(result.tree.children[1].value, "Employee")
 
     def test_optimize_respects_max_iterations(self):
         """Test that optimizer respects max_iterations limit."""
-        optimizer = QueryOptimizer(rules=self.rules, max_iterations=1)
+        optimizer = QueryOptimizer(
+            storage_manager=Mock(), rules=self.rules, max_iterations=1
+        )
 
-        left = QueryTree(type='table', value='T1', children=[])
-        right = QueryTree(type='table', value='T2', children=[])
-        join = QueryTree(type='join', value='cond', children=[left, right])
+        left = QueryTree(type="table", value="T1", children=[])
+        right = QueryTree(type="table", value="T2", children=[])
+        join = QueryTree(type="join", value="cond", children=[left, right])
         left.parent = join
         right.parent = join
 
         parsed = ParsedQuery(tree=join, query="test query")
         result = optimizer.optimize_query(parsed)
 
-        # Should still optimize since it only needs 1 iteration
         self.assertIsNotNone(result)
 
     def test_add_rule(self):
@@ -112,7 +114,7 @@ class TestQueryOptimizer(unittest.TestCase):
 
     def test_optimize_query(self):
         """Test optimize_query method."""
-        tree = QueryTree(type='table', value='Employee', children=[])
+        tree = QueryTree(type="table", value="Employee", children=[])
         parsed_query = ParsedQuery(tree=tree, query="SELECT * FROM Employee")
 
         result = self.optimizer.optimize_query(parsed_query)
@@ -122,7 +124,7 @@ class TestQueryOptimizer(unittest.TestCase):
 
     def test_get_cost_raises_when_no_calculator(self):
         """Test that get_cost raises error when no cost calculator configured."""
-        tree = QueryTree(type='table', value='Employee', children=[])
+        tree = QueryTree(type="table", value="Employee", children=[])
         parsed_query = ParsedQuery(tree=tree, query="SELECT * FROM Employee")
 
         with self.assertRaises(NotImplementedError):
@@ -130,37 +132,51 @@ class TestQueryOptimizer(unittest.TestCase):
 
     def test_get_cost_with_calculator(self):
         """Test get_cost with configured cost calculator."""
-        def mock_cost_calculator(query):
-            return 100
 
-        optimizer = QueryOptimizer(rules=self.rules, cost_calculator=mock_cost_calculator)
-        tree = QueryTree(type='table', value='Employee', children=[])
+        from src.core.models.storage import Statistic
+
+        mock_stat = Statistic(
+            table_name="Employee",
+            n_r=100,
+            b_r=10,
+            l_r=50,
+            f_r=10,
+            V={},
+            min_values={},
+            max_values={},
+            null_counts={},
+        )
+        statistics = {"Employee": mock_stat}
+
+        optimizer = QueryOptimizer(
+            storage_manager=Mock(), rules=self.rules, statistics=statistics
+        )
+        tree = QueryTree(type="table", value="Employee", children=[])
         parsed_query = ParsedQuery(tree=tree, query="SELECT * FROM Employee")
 
         cost = optimizer.get_cost(parsed_query)
 
-        self.assertEqual(cost, 100)
+        self.assertGreater(cost, 0)
 
     def test_optimize_bottom_up(self):
         """Test that optimizer applies rules bottom-up."""
-        # Build nested structure: (T1 ⋈ T2) ⋈ T3
-        t1 = QueryTree(type='table', value='T1', children=[])
-        t2 = QueryTree(type='table', value='T2', children=[])
-        inner_join = QueryTree(type='join', value='cond1', children=[t1, t2])
+
+        t1 = QueryTree(type="table", value="T1", children=[])
+        t2 = QueryTree(type="table", value="T2", children=[])
+        inner_join = QueryTree(type="join", value="cond1", children=[t1, t2])
         t1.parent = inner_join
         t2.parent = inner_join
 
-        t3 = QueryTree(type='table', value='T3', children=[])
-        outer_join = QueryTree(type='join', value='cond2', children=[inner_join, t3])
+        t3 = QueryTree(type="table", value="T3", children=[])
+        outer_join = QueryTree(type="join", value="cond2", children=[inner_join, t3])
         inner_join.parent = outer_join
         t3.parent = outer_join
 
         parsed = ParsedQuery(tree=outer_join, query="test query")
         result = self.optimizer.optimize_query(parsed)
 
-        # Both joins should be optimized (children swapped)
         self.assertIsNotNone(result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
