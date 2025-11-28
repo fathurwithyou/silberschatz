@@ -4,6 +4,7 @@ from pathlib import Path
 import json , time
 from src.core.failure_recovery_manager import IFailureRecoveryManager
 from src.core.models.failure import LogRecord , LogRecordType , RecoverCriteria
+from src.core.models.storage import DataWrite, Condition, ComparisonOperator
 
 class FailureRecoveryManager(IFailureRecoveryManager) :
     """
@@ -69,80 +70,135 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
 
 
     def save_checkpoint(self):
-        """
-        Menyimpan checkpoint ke dalam log.
-        Proses:
-        1. Flush buffer WAL ke disk
-        2. Write dirty blocks dari buffer ke physical storage
-        3. Catat active transactions
-        4. Tulis checkpoint entry ke log
-        5. Update metadata
-        """
-        # Step 1: Flush WAL buffer agar semua log masuk ke disk
-        self._flush_buffer_to_disk()
-        
-        # Step 2: Baca metadata untuk mendapat posisi checkpoint terakhir
-        meta = self._read_meta()
-        last_checkpoint_line = meta.get("last_checkpoint_line", 0)
-        
-        # Step 3: Identifikasi active transactions dari log
-        active_transactions = set()
-        committed_transactions = set()
-        aborted_transactions = set()
-        
-        current_line = 0
-        if self.log_path.exists():
-            with self.log_path.open("r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    current_line = line_num
-                    if line_num <= last_checkpoint_line:
-                        continue
-                        
-                    if line.strip():
-                        try:
-                            entry = json.loads(line.strip())
-                            log_type = entry.get("log_type")
-                            txn_id = entry.get("transaction_id")
-                            
-                            if log_type == "START":
-                                active_transactions.add(txn_id)
-                            elif log_type == "COMMIT":
-                                committed_transactions.add(txn_id)
-                                active_transactions.discard(txn_id)
-                            elif log_type == "ABORT":
-                                aborted_transactions.add(txn_id)
-                                active_transactions.discard(txn_id)
-                        except json.JSONDecodeError:
+            """
+            Menyimpan checkpoint ke dalam log.
+            """
+            # Step 1: Flush buffer WAL ke disk
+            self._flush_buffer_to_disk()
+            
+            # Step 2: Baca metadata
+            meta = self._read_meta()
+            last_checkpoint_line = meta.get("last_checkpoint_line", 0)
+            
+            # Step 3: Identifikasi transaksi
+            active_transactions = set()
+            committed_transactions = set()
+            log_entries = []
+            
+            current_line = 0
+            if self.log_path.exists():
+                with self.log_path.open("r", encoding="utf-8") as f:
+                    for line_num, line in enumerate(f, 1):
+                        current_line = line_num
+                        if line_num <= last_checkpoint_line:
                             continue
-        
-        # Step 4: Flush dirty blocks dari buffer ke physical storage
-        # Ini adalah tahap penting - menulis perubahan in-memory ke disk
-        if self.storage_manager and hasattr(self.storage_manager, 'flush_buffer'):
-            # Storage manager harus memiliki method untuk flush buffer-nya
-            self.storage_manager.flush_buffer()
-        
-        # Step 5: Buat dan tulis checkpoint log entry
-        checkpoint_record = LogRecord(
-            log_type=LogRecordType.CHECKPOINT,
-            transaction_id=-1,
-            item_name=None,
-            old_value=None,
-            new_value=None,
-            active_transactions=list(active_transactions)
-        )
-        
-        with self.log_path.open("a", encoding="utf-8") as f:
-            checkpoint_entry = checkpoint_record.to_dict()
-            f.write(json.dumps(checkpoint_entry, ensure_ascii=False) + "\n")
-            current_line += 1
-        
-        # Step 6: Update metadata dengan posisi checkpoint baru
-        meta["last_checkpoint_line"] = current_line
-        meta["last_checkpoint_time"] = time.time()
-        meta["active_transactions_at_checkpoint"] = list(active_transactions)
-        self._write_meta(meta)
-        
-        self._buffer_size = 0
+                            
+                        if line.strip():
+                            try:
+                                entry = json.loads(line.strip())
+                                log_entries.append(entry)
+                                
+                                # Parse Enum name back to string for comparison if needed, 
+                                # or compare string directly from JSON
+                                log_type = entry.get("log_type") 
+                                txn_id = entry.get("transaction_id")
+                                
+                                if log_type == "START":
+                                    active_transactions.add(txn_id)
+                                elif log_type == "COMMIT":
+                                    committed_transactions.add(txn_id)
+                                    active_transactions.discard(txn_id)
+                                elif log_type == "ABORT":
+                                    active_transactions.discard(txn_id)
+                            except json.JSONDecodeError:
+                                continue
+            
+            # Step 4: Apply committed changes ke physical storage
+            if self.storage_manager:
+                for entry in log_entries:
+                    log_type = entry.get("log_type")
+                    txn_id = entry.get("transaction_id")
+                    
+                    # Hanya apply changes dari committed transactions
+                    if log_type == "CHANGE" and txn_id in committed_transactions:
+                        try:
+                            payload = entry.get("new_value")
+                            
+                            if isinstance(payload, dict):
+                                table_name = payload.get("table")
+                                operation = payload.get("operation")
+                                conditions_raw = payload.get("conditions", [])
+                                
+                                # Reconstruct Conditions
+                                conditions = []
+                                for c in conditions_raw:
+                                    if isinstance(c, dict):
+                                        try:
+                                            # Try to map operator string to Enum
+                                            op_val = c.get("operator")
+                                            # Handle if operator is stored as name (EQ) or value (=)
+                                            if op_val in [e.value for e in ComparisonOperator]:
+                                                op_enum = ComparisonOperator(op_val)
+                                            elif op_val in [e.name for e in ComparisonOperator]:
+                                                op_enum = ComparisonOperator[op_val]
+                                            else:
+                                                # Default or skip if unknown
+                                                continue
+                                                
+                                            conditions.append(Condition(
+                                                column=c.get("column"), 
+                                                operator=op_enum, 
+                                                value=c.get("value")
+                                            ))
+                                        except Exception:
+                                            continue
+                                
+                                is_update = (operation == "UPDATE")
+                                
+                                # Construct data dictionary
+                                if is_update:
+                                    col = payload.get("column")
+                                    val = payload.get("actual_value")
+                                    # If column is specified, it's a single column update
+                                    data = {col: val} if col else val
+                                else:
+                                    # INSERT: actual_value should be the row dict
+                                    data = payload.get("actual_value")
+                                
+                                data_write_obj = DataWrite(
+                                    table_name=table_name,
+                                    data=data,
+                                    is_update=is_update,
+                                    conditions=conditions
+                                )
+                                self.storage_manager.write_block(data_write_obj)
+                        except Exception as e:
+                            print(f"Error applying log to storage: {e}")
+            
+            # Step 5: (Skipped - Storage Manager has no public flush method in spec)
+            
+            # Step 6: Buat dan tulis checkpoint log entry
+            # UPDATED: Now using your LogRecord definition correctly
+            checkpoint_record = LogRecord(
+                log_type=LogRecordType.CHECKPOINT,
+                transaction_id=-1,
+                item_name=None, # Checkpoint doesn't need an item name
+                old_value=None,
+                new_value=None,
+                active_transactions=list(active_transactions) # Pass directly!
+            )
+            
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(checkpoint_record.to_dict(), ensure_ascii=False) + "\n")
+                current_line += 1
+            
+            # Step 7: Update metadata
+            meta["last_checkpoint_line"] = current_line
+            meta["last_checkpoint_time"] = time.time()
+            meta["active_transactions_at_checkpoint"] = list(active_transactions)
+            self._write_meta(meta)
+            
+            self._buffer_size = 0
 
     def recover(self, criteria: RecoverCriteria) -> List[str]:
         # Backward recovery berdasarkan criteria.
