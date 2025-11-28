@@ -1,14 +1,22 @@
 from typing import Dict, Any
-from src.core import IConcurrencyControlManager, IStorageManager
-from src.core.models import (DataWrite, TableSchema, ComparisonOperator, Condition, DataType, QueryTree, QueryNodeType, Rows)
-
+from src.core import IConcurrencyControlManager, IStorageManager, IFailureRecoveryManager
+from src.core.models import (DataWrite, 
+                             DataRetrieval,
+                             TableSchema, 
+                             ComparisonOperator, 
+                             Condition, DataType, 
+                             Rows, LogRecord, LogRecordType,
+                             Action)
+from ..exceptions import AbortError
+from ..utils import get_column_from_schema
 
 class UpdateOperator:
-    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager):
+    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager, frm: IFailureRecoveryManager):
         self.ccm = ccm
         self.storage_manager = storage_manager
+        self.frm = frm
 
-    def execute(self, rows: Rows, set_clause: str) -> Rows:
+    def execute(self, rows: Rows, set_clause: str, tx_id: int) -> Rows:
         if len(rows.schema) != 1:
             raise ValueError("UpdateOperator only supports single table updates.")
         
@@ -26,6 +34,12 @@ class UpdateOperator:
 
         # update per-row
         updated_count = 0
+        
+        # Validate with CCM before proceeding
+        validate = self.ccm.validate_object(table_name, tx_id, Action.WRITE)
+        if not validate.allowed:
+            raise AbortError(tx_id, table_name, Action.WRITE, 
+                           f"Write access denied by concurrency control manager")
 
         for row in rows.data:
 
@@ -33,7 +47,18 @@ class UpdateOperator:
             updated_row = self._apply_assignments(row, assignments, schema)
             updated_row = self._transform_col_name(updated_row)
             
-            # condition berbasis PK
+            # Log ke Failure Recovery Manager
+            log_record = LogRecord(
+                log_type=LogRecordType.CHANGE,
+                transaction_id=tx_id,
+                item_name=table_name,
+                old_value=self._transform_col_name(row),
+                new_value=updated_row,
+                active_transactions=self.ccm.get_active_transactions()[1]
+            )
+            self.frm.write_log(log_record)
+            
+            # write ke storage
             data_write = DataWrite(
                 table_name=table_name,
                 data=updated_row,
@@ -81,11 +106,38 @@ class UpdateOperator:
         return assignments
 
     # apply assignment ke row lama
-    def _apply_assignments(self, row, assignments, schema):
+    def _apply_assignments(self, row: Dict[str, Any], assignments: Dict[str, str], schema: TableSchema) -> Dict[str, Any]:
         updated = row.copy()
+        table_name = schema.table_name
+        pk_column = schema.primary_key
+        
         for col, expr in assignments.items():
             updated[col] = self._parse_value(expr, col, schema)
+            column = get_column_from_schema(schema, col)
+            if (updated[col] is None) and (not column.nullable):
+                raise ValueError(f"Column '{col}' cannot be set to NULL due to NOT NULL constraint.")
+            
+            if column.primary_key and pk_column is not None:
+                new_pk_value = updated[col]
+                old_pk_value = row.get(col)
+                
+                if new_pk_value != old_pk_value:
+                    if self._check_pk_conflict(table_name, pk_column, new_pk_value):
+                        raise ValueError(f"UPDATE causes PK conflict '{pk_column}'={new_pk_value}")
+            
         return updated
+    
+    def _check_pk_conflict(self, table_name: str, pk_column: str, new_pk_value: Any) -> bool:
+        data_retrieval = DataRetrieval(
+            table_name=table_name,
+            columns=[pk_column],
+            conditions=[Condition(pk_column, ComparisonOperator.EQ, new_pk_value)],
+            limit=1
+        )
+        
+        result = self.storage_manager.read_block(data_retrieval)
+        
+        return result.rows_count > 0
     
     def _transform_col_name(self, row: Dict[str, Any]):
         transformed = {}

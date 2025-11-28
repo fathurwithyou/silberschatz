@@ -1,6 +1,6 @@
 from src.core import IQueryProcessor, IQueryOptimizer, IStorageManager, IConcurrencyControlManager, IFailureRecoveryManager
 from src.core.models import ExecutionResult, Rows, QueryTree, ParsedQuery, QueryNodeType
-from .handlers import TCLHandler, DMLHandler, DDLHandler
+from .handlers import TCLHandler, DMLHandler, DDLHandler, QueryTypeEnum
 from .operators import (
     ScanOperator,
     SelectionOperator,
@@ -8,9 +8,11 @@ from .operators import (
     JoinOperator,
     UpdateOperator,
     SortOperator,
+    DeleteOperator
 )
 from .validators import SyntaxValidator
 from typing import Optional
+from datetime import datetime
 import re
 
 """
@@ -45,14 +47,20 @@ class QueryProcessor(IQueryProcessor):
         self.selection_operator = SelectionOperator()
         self.projection_operator = ProjectionOperator()
         self.join_operator = JoinOperator()
-        self.update_operator = UpdateOperator(self.ccm, self.storage) 
+        self.update_operator = UpdateOperator(self.ccm, self.storage, self.frm) 
         self.sort_operator = SortOperator()
+        self.delete_operator = DeleteOperator(self.ccm, self.storage)
         # dst
 
     def execute_query(self, query: str) -> ExecutionResult:
         """
         Eksekusi query yang diterima dari user.
         """
+        # Handle meta commands first, before validation
+        meta_result = self._handle_meta_commands(query.strip())
+        if meta_result is not None:
+            return meta_result
+        
         validated_query = self.validator.validate(query)
         if not validated_query.is_valid:
             error_msg = f"{validated_query.error_message}\n"
@@ -76,9 +84,9 @@ class QueryProcessor(IQueryProcessor):
         Membaca query dan memanggil handler yang sesuai.
         """
         query_type = self._get_query_type(query.tree)
-        if query_type == "DML":
+        if query_type == QueryTypeEnum.DML:
             return self.dml_handler.handle(query)
-        elif query_type == "TCL":
+        elif query_type == QueryTypeEnum.TCL:
             return self.tcl_handler.handle(query)
         else:
             return self.ddl_handler.handle(query)
@@ -112,15 +120,19 @@ class QueryProcessor(IQueryProcessor):
         
         elif node.type == QueryNodeType.UPDATE:
             target_rows = self.execute(node.children[0], tx_id)
-            return self.update_operator.execute(target_rows, node.value)
+            return self.update_operator.execute(target_rows, node.value, tx_id)
 
         elif node.type == QueryNodeType.ORDER_BY:
             rows = self.execute(node.children[0], tx_id)
-            return self.sort_operator.execute(rows, node.value)        
+            return self.sort_operator.execute(rows, node.value)
+
+        elif node.type == QueryNodeType.DELETE:
+            target_rows = self.execute(node.children[0], tx_id)
+            return self.delete_operator.execute(target_rows)        
         
         raise ValueError(f"Unknown query type: {node.type}")
     
-    def _get_query_type(self, query_tree: QueryTree) -> str:
+    def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:
         """
         Mengembalikan tipe query berdasarkan pohon query.
         """
@@ -128,11 +140,11 @@ class QueryProcessor(IQueryProcessor):
         ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
         tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
         if query_tree.type in ddl_type:
-            return "DDL"
+            return QueryTypeEnum.DDL
         elif query_tree.type in tcl_type:
-            return "TCL"
+            return QueryTypeEnum.TCL
         else:
-            return "DML"
+            return QueryTypeEnum.DML
 
     def _build_join_condition(
         self, node: QueryTree, left: Rows, right: Rows
@@ -165,3 +177,112 @@ class QueryProcessor(IQueryProcessor):
             condition_text = " AND ".join(clauses) if clauses else None
             return condition_text, shared_columns or None
         return node.value or None, None
+    
+    def _handle_meta_commands(self, query: str) -> Optional[ExecutionResult]:
+        """
+        Handle PostgreSQL-style meta commands (\\dt, \\d {table_name})
+        """
+        query = query.strip()
+        
+        if not query.startswith('\\'):
+            return None
+        
+        # Handle \dt - list all tables
+        if query == '\\dt':
+            return self._handle_list_tables()
+        
+        # Handle \d {table_name} - describe table
+        if query.startswith('\\d '):
+            table_name = query[3:].strip()
+            if table_name:
+                return self._handle_describe_table(table_name)
+        
+        # Handle \d alone - list all tables (same as \dt)
+        if query == '\\d':
+            return self._handle_list_tables()
+        
+        return None
+    
+    def _handle_list_tables(self) -> ExecutionResult:
+        try:
+            tables = self.storage.list_tables()
+            
+            # Create result data
+            table_data = []
+            for table in tables:
+                table_info = {
+                    'Name': table,
+                }
+                table_data.append(table_info)
+            
+            rows = Rows(data=table_data, rows_count=len(table_data))
+            
+            message = f"List of relations"
+            if len(tables) == 0:
+                message = "No tables found."
+            
+            return ExecutionResult(
+                transaction_id=self.transaction_id or 0,
+                timestamp=datetime.now(),
+                message=message,
+                data=rows,
+                query='\\dt'
+            )
+        except Exception as e:
+            return ExecutionResult(
+                transaction_id=self.transaction_id or 0,
+                timestamp=datetime.now(),
+                message=f"Error listing tables: {str(e)}",
+                data=None,
+                query='\\dt'
+            )
+    
+    def _handle_describe_table(self, table_name: str) -> ExecutionResult:
+        try:
+            schema = self.storage.get_table_schema(table_name)
+            
+            if schema is None:
+                return ExecutionResult(
+                    transaction_id=self.transaction_id or 0,
+                    timestamp=datetime.now(),
+                    message=f"Table '{table_name}' does not exist.",
+                    data=None,
+                    query=f'\\d {table_name}'
+                )
+            
+            # Create column information
+            column_data = []
+            for column in schema.columns:
+                column_info = {
+                    'Column': column.name,
+                    'Type': column.data_type.name.lower(),
+                    'Nullable': 'YES' if column.nullable else 'NO',
+                }
+                
+                # Add primary key indicator
+                if schema.primary_key == column.name:
+                    column_info['Key'] = 'PK'
+                else:
+                    column_info['Key'] = ''
+                    
+                column_data.append(column_info)
+            
+            rows = Rows(data=column_data, rows_count=len(column_data))
+            
+            message = f"Table '{table_name}'"
+            
+            return ExecutionResult(
+                transaction_id=self.transaction_id or 0,
+                timestamp=datetime.now(),
+                message=message,
+                data=rows,
+                query=f'\\d {table_name}'
+            )
+        except Exception as e:
+            return ExecutionResult(
+                transaction_id=self.transaction_id or 0,
+                timestamp=datetime.now(),
+                message=f"Error describing table '{table_name}': {str(e)}",
+                data=None,
+                query=f'\\d {table_name}'
+            )
