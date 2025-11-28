@@ -364,6 +364,165 @@ def test_update_query():
     finally:
         cleanup_test_data()
 
+
+def test_execute_insert_query_all_columns():
+    """Test INSERT query with all columns specified."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        result = processor.execute_query("INSERT INTO users (id, name, age, salary) VALUES (4, 'Alice', 28, 55000.0)")
+        
+        assert isinstance(result, ExecutionResult)
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        assert "executed successfully" in result.message.lower() or "insert" in result.message.lower()
+        
+        select_result = processor.execute_query("SELECT * FROM users WHERE users.id = 4")
+        assert select_result.data is not None
+        assert select_result.data.rows_count == 1
+        new_row = select_result.data.data[0]
+        assert new_row["users.id"] == 4
+        assert new_row["users.name"] == "Alice"
+        assert new_row["users.age"] == 28
+        assert new_row["users.salary"] == 55000.0
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_execute_insert_query_partial_columns():
+    """Test INSERT query with only some columns specified."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        result = processor.execute_query("INSERT INTO users (id, name) VALUES (5, 'Charlie')")
+        
+        assert isinstance(result, ExecutionResult)
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        
+        select_result = processor.execute_query("SELECT * FROM users WHERE users.id = 5")
+        assert select_result.data is not None
+        assert select_result.data.rows_count == 1
+        new_row = select_result.data.data[0]
+        assert new_row["users.id"] == 5
+        assert new_row["users.name"] == "Charlie"
+        assert new_row["users.age"] is None
+        assert new_row["users.salary"] is None
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_execute_insert_query_no_columns_specified():
+    """Test INSERT query without specifying columns (values in schema order)."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        result = processor.execute_query("INSERT INTO users VALUES (6, 'Diana', 32, 62000.0)")
+        
+        assert isinstance(result, ExecutionResult)
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        
+        select_result = processor.execute_query("SELECT * FROM users WHERE users.id = 6")
+        assert select_result.data is not None
+        assert select_result.data.rows_count == 1
+        new_row = select_result.data.data[0]
+        assert new_row["users.id"] == 6
+        assert new_row["users.name"] == "Diana"
+        assert new_row["users.age"] == 32
+        assert new_row["users.salary"] == 62000.0
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_execute_insert_query_with_null_values():
+    """Test INSERT query with explicit NULL values."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        result = processor.execute_query("INSERT INTO users (id, name, age, salary) VALUES (7, 'Eve', NULL, NULL)")
+        
+        assert isinstance(result, ExecutionResult)
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        
+        select_result = processor.execute_query("SELECT * FROM users WHERE users.id = 7")
+        assert select_result.data is not None
+        assert select_result.data.rows_count == 1
+        new_row = select_result.data.data[0]
+        assert new_row["users.id"] == 7
+        assert new_row["users.name"] == "Eve"
+        assert new_row["users.age"] is None
+        assert new_row["users.salary"] is None
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_execute_delete_query():
+    """Test DELETE query to remove specific rows."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        initial_result = processor.execute_query("SELECT * FROM users")
+        assert initial_result.data is not None
+        assert initial_result.data.rows_count == 3
+        
+        delete_result = processor.execute_query("DELETE FROM users WHERE users.id = 2")
+        
+        assert isinstance(delete_result, ExecutionResult)
+        assert delete_result.data is not None
+        assert delete_result.data.rows_count == 1
+        assert "delete successful" in delete_result.message.lower() or "executed successfully" in delete_result.message.lower()
+        
+        remaining_result = processor.execute_query("SELECT * FROM users")
+        assert remaining_result.data is not None
+        assert remaining_result.data.rows_count == 2
+        
+        jane_check = processor.execute_query("SELECT * FROM users WHERE users.id = 2")
+        assert jane_check.data is not None
+        assert jane_check.data.rows_count == 0
+        
+        remaining_ids = [row["users.id"] for row in remaining_result.data.data]
+        assert set(remaining_ids) == {1, 3}
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_execute_delete_query_with_conditions():
+    """Test DELETE query with complex WHERE conditions."""
+    cleanup_test_data()
+    processor = setup_test_environment()
+    
+    try:
+        delete_result = processor.execute_query("DELETE FROM users WHERE users.salary > 55000")
+        
+        assert isinstance(delete_result, ExecutionResult)
+        assert delete_result.data is not None
+        assert delete_result.data.rows_count == 2
+        
+        remaining_result = processor.execute_query("SELECT * FROM users")
+        assert remaining_result.data is not None
+        assert remaining_result.data.rows_count == 1
+        
+        remaining_user = remaining_result.data.data[0]
+        assert remaining_user["users.id"] == 1
+        assert remaining_user["users.name"] == "John"
+        assert remaining_user["users.salary"] == 50000.0
+        
+    finally:
+        cleanup_test_data()
+
+
 if __name__ == "__main__":
     test_execute_query_valid_select()
     test_execute_query_with_where_clause()
@@ -383,5 +542,11 @@ if __name__ == "__main__":
     test_complex_query_nested_conditions()
     test_complex_query_boundary_values()
     test_complex_query_with_wildcard_and_conditions()
+    test_execute_insert_query_all_columns()
+    test_execute_insert_query_partial_columns()
+    test_execute_insert_query_no_columns_specified()
+    test_execute_insert_query_with_null_values()
+    test_execute_delete_query()
+    test_execute_delete_query_with_conditions()
     
     print("All QueryProcessor execute_query tests passed!")

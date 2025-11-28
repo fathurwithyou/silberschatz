@@ -134,7 +134,7 @@ class QueryProcessor(IQueryProcessor):
 
         elif node.type == QueryNodeType.INSERT:
             return self.insert_operator.execute(
-                self.execute(node.children[0], tx_id),
+                node.children[0].value,
                 node.value
             )      
         

@@ -41,8 +41,13 @@ class DatabaseServer:
         if not result.data:
             return "No Data returned.\n"
         
-        if result.message and (result.message == "update successful" or result.message == "delete successful"):
-            action = "UPDATE" if "update" in result.message else "DELETE"
+        if result.message and (result.message == "update successful" or result.message == "delete successful" or result.message == "insert successful"):
+            if "update" in result.message:
+                action = "UPDATE"
+            elif "delete" in result.message:
+                action = "DELETE"
+            else:
+                action = "INSERT"
             output.append(f"{action} {result.data.rows_count}")
             output.append(f"Time: {execution_time * 1000:.4f} ms")
             return "\n".join(output)
@@ -53,7 +58,7 @@ class DatabaseServer:
         col_widths = [len(header) for header in shown_headers]
         
         for i, header in enumerate(headers):
-            value_width = max(len(str(row.get(header, 'NULL'))) for row in rows) if rows else 0
+            value_width = max(len('NULL' if row.get(header) is None else str(row.get(header, 'NULL'))) for row in rows) if rows else 0
             col_widths[i] = max(col_widths[i], value_width)
         
         # Format header row
@@ -67,7 +72,8 @@ class DatabaseServer:
         
         # Format data rows
         for row in rows:
-            values = [str(row.get(h, 'NULL')).ljust(col_widths[i]) for i, h in enumerate(headers)]
+            values = [str(row.get(h, 'NULL')) if row.get(h) is not None else 'NULL' for i, h in enumerate(headers)]
+            values = [v.ljust(col_widths[i]) for i, v in enumerate(values)]
             data_row = "| " + " | ".join(values) + " |"
             output.append(data_row)
         
