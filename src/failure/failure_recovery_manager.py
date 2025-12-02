@@ -274,9 +274,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
 
     def _undo_change(self, entry: Dict[str, Any], active_txns_at_checkpoint: set = None) -> str:
         # Undo satu perubahan dari log entry.
-        # Untuk sekarang, hanya return description action yang akan dilakukan.
-        # Nanti bisa diintegrasikan dengan storage manager untuk eksekusi nyata.
-        
+        # Kalau storage_manager ada, maka undo ke storage, kalau tidak hanya return description action
         txn_id = entry.get("transaction_id", -1)
         
         # Cek apakah transaksi ini sudah committed di checkpoint terakhir
@@ -287,24 +285,93 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         old_value = entry.get("old_value")
         new_value = entry.get("new_value")
 
-        #cek apakah DDL atau tidak (create/drop table)
+        # 1) CREATE TABLE, DROP TABLE
         if isinstance(new_value, dict) and "operation" in new_value:
             operation = new_value.get("operation")
             table_name = new_value.get("table", "unknown")
             
             if operation == "CREATE_TABLE":
                 # Undo CREATE TABLE = DROP TABLE
+                if self.storage_manager and hasattr(self.storage_manager, "drop_table"):
+                    try:
+                        self.storage_manager.drop_table(table_name)
+                        return f"DROPPED TABLE {table_name} (undo CREATE, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED DROP TABLE {table_name} (undo CREATE, txn: {txn_id}): {e}"
                 return f"DROP TABLE {table_name} (undo CREATE, txn: {txn_id})"
             
             elif operation == "DROP_TABLE":
                 # Undo DROP TABLE = CREATE TABLE dengan schema lama
-                schema = old_value.get("schema") if isinstance(old_value, dict) else None
-                return f"CREATE TABLE {table_name} WITH SCHEMA {schema} (undo DROP, txn: {txn_id})"
+                schema_obj = old_value.get("schema") if isinstance(old_value, dict) else None
+                if self.storage_manager and hasattr(self.storage_manager, "create_table") and schema_obj:
+                    try:
+                        self.storage_manager.create_table(schema_obj)
+                        return f"CREATED TABLE {table_name} (undo DROP, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED CREATE TABLE {table_name} (undo DROP, txn: {txn_id}): {e}"
+                return f"CREATE TABLE {table_name} WITH SCHEMA {schema_obj} (undo DROP, txn: {txn_id})"
         
-        #kalo update, insert, delete
+        # UPDATE, INSERT, DELETE
+        payload = new_value if isinstance(new_value, dict) and "table" in new_value else None
+        table = None
+        
+        if payload:
+            table = payload.get("table")
+        elif isinstance(item_name, str) and "." in item_name:
+            # Parse table dari item_name kayak "Employee.salary"
+            table = item_name.split(".", 1)[0]
+        
         if old_value is not None:
-            # Return description dari undo action
+            # UPDATE atau DELETE
+            if payload and table and self.storage_manager:
+                # Reconstruct conditions from payload
+                conditions = []
+                for c in payload.get("conditions", []):
+                    try:
+                        op_val = c.get("operator")
+                        if op_val in [e.value for e in ComparisonOperator]:
+                            op_enum = ComparisonOperator(op_val)
+                        elif op_val in [e.name for e in ComparisonOperator]:
+                            op_enum = ComparisonOperator[op_val]
+                        else:
+                            continue
+                        conditions.append(Condition(column=c.get("column"), operator=op_enum, value=c.get("value")))
+                    except Exception:
+                        continue
+                
+                # Data yg direstore = old_value
+                data_to_write = old_value if isinstance(old_value, dict) else {}
+                try:
+                    dw = DataWrite(table_name=table, data=data_to_write, is_update=True, conditions=conditions or None)
+                    affected = self.storage_manager.write_block(dw)
+                    return f"RESTORED {table} affected={affected} (txn: {txn_id})"
+                except Exception as e:
+                    return f"FAILED RESTORE {table} (txn: {txn_id}): {e}"
+            
+            # Fallback: return description
             return f"RESTORE {item_name} FROM '{new_value}' TO '{old_value}' (txn: {txn_id})"
+        
         else:
-            # Jika old_value adalah None, berarti ini INSERT operation
+            # old_value None ->INSERT, undo nya DELETE
+            if payload and table and self.storage_manager:
+                actual = payload.get("actual_value")
+                conditions = []
+                
+                if isinstance(actual, dict):
+                    for col, val in actual.items():
+                        try:
+                            conditions.append(Condition(column=col, operator=ComparisonOperator.EQ, value=val))
+                        except Exception:
+                            continue
+                
+                if conditions:
+                    try:
+                        from src.core.models.storage import DataDeletion
+                        data_del = DataDeletion(table_name=table, conditions=conditions)
+                        affected = self.storage_manager.delete_block(data_del)
+                        return f"DELETED {table} affected={affected} (undo INSERT, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED DELETE {table} (undo INSERT, txn: {txn_id}): {e}"
+            
+            # Fallback: return description
             return f"DELETE {item_name} (undo INSERT, txn: {txn_id})"
