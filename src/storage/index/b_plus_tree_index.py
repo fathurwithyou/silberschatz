@@ -170,12 +170,16 @@ class BPlusTreeIndex(BaseIndex):
             for i, k in enumerate(node.keys):
                 if k == key:
                     row_ids = node.children[i]
-                    if isinstance(row_ids, list) and row_id in row_ids:
+                    if not isinstance(row_ids, list):
+                        row_ids = [row_ids]
+                    if row_id in row_ids:
                         row_ids.remove(row_id)
                         if not row_ids:
                             node.keys.pop(i)
                             node.children.pop(i)
-                    break
+                        else:
+                            node.children[i] = row_ids
+                    return
         else:
             index = node.find_index(key)
             if index < len(node.children):
