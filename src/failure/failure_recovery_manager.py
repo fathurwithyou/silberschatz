@@ -286,7 +286,22 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         item_name = entry.get("item_name", "unknown")
         old_value = entry.get("old_value")
         new_value = entry.get("new_value")
+
+        #cek apakah DDL atau tidak (create/drop table)
+        if isinstance(new_value, dict) and "operation" in new_value:
+            operation = new_value.get("operation")
+            table_name = new_value.get("table", "unknown")
+            
+            if operation == "CREATE_TABLE":
+                # Undo CREATE TABLE = DROP TABLE
+                return f"DROP TABLE {table_name} (undo CREATE, txn: {txn_id})"
+            
+            elif operation == "DROP_TABLE":
+                # Undo DROP TABLE = CREATE TABLE dengan schema lama
+                schema = old_value.get("schema") if isinstance(old_value, dict) else None
+                return f"CREATE TABLE {table_name} WITH SCHEMA {schema} (undo DROP, txn: {txn_id})"
         
+        #kalo update, insert, delete
         if old_value is not None:
             # Return description dari undo action
             return f"RESTORE {item_name} FROM '{new_value}' TO '{old_value}' (txn: {txn_id})"
