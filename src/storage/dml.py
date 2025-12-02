@@ -99,7 +99,6 @@ class DMLManager:
         
         return Rows(data=sliced, rows_count=len(sliced))
 
-    # helper validasi & cast 
     def _cast_by_schema(self, row_obj: Dict[str, Any], schema: TableSchema) -> Dict[str, Any]:
         casted = {}
         for col in schema.columns:
@@ -109,7 +108,7 @@ class DMLManager:
                 continue
 
             val = row_obj[name]
-            t = col.data_type  
+            t = col.data_type
 
             try:
                 if t.startswith("INTEGER"):
@@ -122,15 +121,14 @@ class DMLManager:
                     else:
                         s = str(val)
                         if col.max_length:
-                            casted[name] = s[: col.max_length] # memotong sesuai panjang maksimum
+                            casted[name] = s[: col.max_length]
                         else:
                             casted[name] = s
-                else: # fallback
+                else:
                     casted[name] = val
-            except Exception: # Jika cast gagal
+            except Exception:
                 casted[name] = val
 
-        # meng-copy kolom yang tak disebut di schema 
         for k, v in row_obj.items():
             if k not in casted:
                 casted[k] = v
@@ -141,7 +139,6 @@ class DMLManager:
             return True
         for cond in conditions:
             col = cond.column
-            # sebenarnya bisa dilakukan cast pake _cast_by_schema(...) agar numerik dibandingkan dengan numerik 
             val = row.get(col)
             if not self._evaluate_condition(val, cond.operator, cond.value):
                 return False
@@ -149,3 +146,42 @@ class DMLManager:
 
     def _matches(self, row: Dict[str, Any], conditions: List[Condition]) -> bool:
         return self.row_matches(row, conditions)
+    
+    def try_read_with_index(self, table_name: str, schema: TableSchema, 
+                           conditions: List[Condition], indexes_dict: Dict[tuple, Any]) -> Optional[Rows]:
+        for condition in conditions:
+            column = condition.column
+            
+            if (table_name, column) not in indexes_dict:
+                continue
+            
+            index = indexes_dict[(table_name, column)]
+            row_ids = []
+            
+            if condition.operator == ComparisonOperator.EQ:
+                row_ids = index.search(condition.value)
+            
+            elif hasattr(index, 'range_search'):
+                if condition.operator == ComparisonOperator.GT:
+                    row_ids = index.range_search(condition.value, float('inf'))
+                    row_ids = [rid for rid in row_ids]
+                elif condition.operator == ComparisonOperator.GE:
+                    row_ids = index.range_search(condition.value, float('inf'))
+                elif condition.operator == ComparisonOperator.LT:
+                    row_ids = index.range_search(float('-inf'), condition.value)
+                elif condition.operator == ComparisonOperator.LE:
+                    row_ids = index.range_search(float('-inf'), condition.value)
+            
+            if row_ids:
+                all_rows = self.load_all_rows(table_name, schema)
+                filtered_data = [all_rows.data[rid] for rid in row_ids if rid < len(all_rows.data)]
+                
+                result_rows = Rows(data=filtered_data, rows_count=len(filtered_data))
+                
+                remaining_conditions = [c for c in conditions if c != condition]
+                if remaining_conditions:
+                    result_rows = self.apply_conditions(result_rows, remaining_conditions)
+                
+                return result_rows
+        
+        return None

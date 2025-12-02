@@ -23,7 +23,7 @@ class StorageManager(IStorageManager):
         self.ddl_manager = DDLManager(f"src/{self.data_directory}")
         self.dml_manager = DMLManager(f"src/{self.data_directory}")
         self.statistics_manager = StatisticsManager(f"src/{self.data_directory}")
-        self.indexes: Dict[tuple, BaseIndex] = {}  # (table, column) -> Index
+        self.indexes: Dict[tuple, BaseIndex] = {}
     
     def read_block(self, data_retrieval: DataRetrieval) -> Rows:
         schema = self.ddl_manager.load_schema(data_retrieval.table_name)
@@ -31,10 +31,21 @@ class StorageManager(IStorageManager):
         if schema is None:
             raise ValueError(f"Table '{data_retrieval.table_name}' does not exist")
         
-        rows = self.dml_manager.load_all_rows(data_retrieval.table_name, schema)
+        rows = None
         
         if data_retrieval.conditions:
-            rows = self.dml_manager.apply_conditions(rows, data_retrieval.conditions)
+            rows = self.dml_manager.try_read_with_index(
+                data_retrieval.table_name,
+                schema,
+                data_retrieval.conditions,
+                self.indexes
+            )
+        
+        if rows is None:
+            rows = self.dml_manager.load_all_rows(data_retrieval.table_name, schema)
+            
+            if data_retrieval.conditions:
+                rows = self.dml_manager.apply_conditions(rows, data_retrieval.conditions)
         
         if data_retrieval.columns:
             rows = self.dml_manager.project_columns(rows, data_retrieval.columns)
@@ -57,34 +68,45 @@ class StorageManager(IStorageManager):
 
         all_rows: Rows = self.dml_manager.load_all_rows(table, schema)
 
-        # ======== INSERT ========
         if not data_write.is_update:
             new_row = dict(data_write.data) 
             new_row = self.dml_manager._cast_by_schema(new_row, schema)
 
-            # Validasi PK unik
             if pk_name and pk_name in new_row:
                 new_pk = new_row[pk_name]
 
-                for r in all_rows.data:
-                    if r.get(pk_name) == new_pk:
+                if self.has_index(table, pk_name):
+                    index = self.indexes[(table, pk_name)]
+                    existing_ids = index.search(new_pk)
+                    if existing_ids:
                         raise ValueError(f"Duplicate primary key '{pk_name}'={new_pk}")
+                else:
+                    for r in all_rows.data:
+                        if r.get(pk_name) == new_pk:
+                            raise ValueError(f"Duplicate primary key '{pk_name}'={new_pk}")
 
-            # Menambah row baru & simpan
+            new_row_id = len(all_rows.data)
             all_rows.data.append(new_row)
             all_rows.rows_count = len(all_rows.data)
+            
+            for column_def in schema.columns:
+                column = column_def.name
+                if self.has_index(table, column):
+                    index = self.indexes[(table, column)]
+                    value = new_row.get(column)
+                    if value is not None:
+                        index.insert(value, new_row_id)
+            
             self.dml_manager.save_all_rows(table, all_rows, schema)
             return 1
 
-        # ======== UPDATE ========
         conditions: List[Condition] = data_write.conditions
-
         updated_count = 0
         set_expr: Dict[str, Any] = dict(data_write.data)
 
-        # Update in-memory
         for i, row in enumerate(all_rows.data):
             if self.dml_manager._matches(row, conditions):
+                old_row = row.copy()
                 new_row = row.copy()
 
                 for k, v in set_expr.items():
@@ -94,11 +116,30 @@ class StorageManager(IStorageManager):
 
                 if pk_name and (pk_name in set_expr):
                     new_pk = new_row[pk_name]
-                    # agar tidak bentrok dengan row lain
-                    for j, other in enumerate(all_rows.data):
-                        if j != i and other.get(pk_name) == new_pk:
+                    
+                    if self.has_index(table, pk_name):
+                        index = self.indexes[(table, pk_name)]
+                        existing_ids = index.search(new_pk)
+                        if existing_ids and i not in existing_ids:
                             raise ValueError(f"UPDATE causes PK conflict '{pk_name}'={new_pk}")
+                    else:
+                        for j, other in enumerate(all_rows.data):
+                            if j != i and other.get(pk_name) == new_pk:
+                                raise ValueError(f"UPDATE causes PK conflict '{pk_name}'={new_pk}")
 
+                for column_def in schema.columns:
+                    column = column_def.name
+                    if self.has_index(table, column):
+                        index = self.indexes[(table, column)]
+                        old_value = old_row.get(column)
+                        new_value = new_row.get(column)
+                        
+                        if old_value != new_value:
+                            if old_value is not None:
+                                index.delete(old_value, i)
+                            if new_value is not None:
+                                index.insert(new_value, i)
+                
                 all_rows.data[i] = new_row
                 updated_count += 1
 
@@ -116,18 +157,30 @@ class StorageManager(IStorageManager):
             raise ValueError(f"Table '{table}' does not exist")
 
         all_rows: Rows = self.dml_manager.load_all_rows(table, schema)
-
         conditions: List[Condition] = data_deletion.conditions
 
-        before = len(all_rows.data)
-        kept = [r for r in all_rows.data if not self.dml_manager._matches(r, conditions)]
-        deleted = before - len(kept)
+        deleted_count = 0
+        kept = []
+        
+        for i, row in enumerate(all_rows.data):
+            if self.dml_manager._matches(row, conditions):
+                for column_def in schema.columns:
+                    column = column_def.name
+                    if self.has_index(table, column):
+                        index = self.indexes[(table, column)]
+                        value = row.get(column)
+                        if value is not None:
+                            index.delete(value, i)
+                
+                deleted_count += 1
+            else:
+                kept.append(row)
 
-        if deleted > 0:
+        if deleted_count > 0:
             new_rows = Rows(data=kept, rows_count=len(kept))
             self.dml_manager.save_all_rows(table, new_rows, schema)
 
-        return deleted
+        return deleted_count
     
     def get_stats(self, table_name: str) -> Statistic:
         schema = self.ddl_manager.load_schema(table_name)
@@ -136,22 +189,11 @@ class StorageManager(IStorageManager):
 
         rows = self.dml_manager.load_all_rows(table_name, schema)
         
-        # n_r : number of tuples (rows).
         n_r = self.statistics_manager.get_tuple_count(rows)
-
-        # l_r : tuple size in bytes 
         l_r = self.statistics_manager.get_tuple_size(schema)
-
-        # f_r : blocking factor (tuples per block)
         f_r = self.statistics_manager.get_blocking_factor(l_r)
-
-        # b_r : number of blocks (pages)
         b_r = self.statistics_manager.get_number_of_blocks(n_r, f_r)
-
-        # V(A,r) : number of distinct values for each column
         V = self.statistics_manager.calculate_distinct_values(rows, schema)
-
-        # Opsional : min, max, null counts
         min_values, max_values = self.statistics_manager.calculate_min_max_values(rows, schema)
         null_counts = self.statistics_manager.calculate_null_counts(rows, schema)
 
@@ -168,12 +210,6 @@ class StorageManager(IStorageManager):
         )
     
     def set_index(self, table: str, column: str, index_type: str) -> None:
-        """
-        Masukkan:
-            table: Table name
-            column: Column name
-            index_type: 'b_plus_tree', 'btree', 'b+tree', atau 'hash'
-        """
         schema = self.ddl_manager.load_schema(table)
         if schema is None:
             raise ValueError(f"Table '{table}' does not exist")
@@ -191,17 +227,16 @@ class StorageManager(IStorageManager):
         else:
             raise ValueError(f"Invalid index type '{index_type}'. Use 'b_plus_tree', 'btree', 'b+tree', or 'hash'")
 
+        all_rows = self.dml_manager.load_all_rows(table, schema)
+        for row_id, row in enumerate(all_rows.data):
+            value = row.get(column)
+            if value is not None:
+                index.insert(value, row_id)
+        
+        index.save()
         self.indexes[(table, column)] = index
     
     def drop_index(self, table: str, column: str) -> None:
-        """
-        Masukkan:
-            table: Table name
-            column: Column name
-
-        Raises:
-            ValueError: If index doesn't exist
-        """
         if (table, column) not in self.indexes:
             raise ValueError(f"No index exists on {table}.{column}")
 
@@ -211,14 +246,6 @@ class StorageManager(IStorageManager):
         del self.indexes[(table, column)]
     
     def has_index(self, table: str, column: str) -> bool:
-        """
-        Masukkan:
-            table: Table name
-            column: Column name
-
-        Returns:
-            True if index exists, False otherwise
-        """
         return (table, column) in self.indexes
     
     def create_table(self, schema: TableSchema) -> None:
@@ -233,6 +260,10 @@ class StorageManager(IStorageManager):
     def drop_table(self, table_name: str) -> None:
         if not self.ddl_manager.schema_exists(table_name):
             raise ValueError(f"Table '{table_name}' does not exist")
+
+        indexes_to_drop = [(t, c) for (t, c) in self.indexes.keys() if t == table_name]
+        for table, column in indexes_to_drop:
+            self.drop_index(table, column)
 
         self.ddl_manager.delete_schema(table_name)
         self.ddl_manager.delete_table_file(table_name)
