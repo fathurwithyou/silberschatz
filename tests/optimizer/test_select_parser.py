@@ -158,11 +158,13 @@ class TestSelectParser:
         query = "SELECT name FROM Employee ORDER BY salary DESC"
         tree = parser(query)
 
-        assert tree.type == QueryNodeType.ORDER_BY
-        assert tree.value == "salary DESC"
+        # Root should be projection (ORDER BY is evaluated before projection to access all columns)
+        assert tree.type == QueryNodeType.PROJECTION
+        assert tree.value == "name"
 
-        # Child is projection
-        assert tree.children[0].type == QueryNodeType.PROJECTION
+        # Child is ORDER BY
+        assert tree.children[0].type == QueryNodeType.ORDER_BY
+        assert tree.children[0].value == "salary DESC"
 
     def test_select_with_limit(self, parser):
         """Test SELECT with LIMIT."""
@@ -184,12 +186,13 @@ class TestSelectParser:
         assert tree.type == QueryNodeType.LIMIT
         assert tree.value == "10"
 
-        # Next is ORDER BY
-        assert tree.children[0].type == QueryNodeType.ORDER_BY
-        assert tree.children[0].value == "salary DESC"
-
         # Next is PROJECTION
-        assert tree.children[0].children[0].type == QueryNodeType.PROJECTION
+        assert tree.children[0].type == QueryNodeType.PROJECTION
+        assert tree.children[0].value == "name"
+
+        # Next is ORDER BY (evaluated before projection to access all columns)
+        assert tree.children[0].children[0].type == QueryNodeType.ORDER_BY
+        assert tree.children[0].children[0].value == "salary DESC"
 
         # Next is SELECTION
         assert tree.children[0].children[0].children[0].type == QueryNodeType.SELECTION

@@ -28,77 +28,145 @@ class DropParser(BaseParser):
         query_upper = query.upper()
 
         table_pos = query_upper.find('TABLE')
-        table = query[table_pos + 5:].strip()
+        rest = query[table_pos + 5:].strip()
 
-        cascade = 'CASCADE' if 'CASCADE' in query_upper else ''
-        restrict = 'RESTRICT' if 'RESTRICT' in query_upper else ''
-        modifier = cascade or restrict
+        # Check for CASCADE or RESTRICT modifier
+        cascade_pos = rest.upper().find('CASCADE')
+        restrict_pos = rest.upper().find('RESTRICT')
 
-        value = f"{table} {modifier}".strip()
+        if cascade_pos != -1:
+            table = rest[:cascade_pos].strip()
+            value = f"{table} CASCADE"
+        elif restrict_pos != -1:
+            table = rest[:restrict_pos].strip()
+            value = f"{table} RESTRICT"
+        else:
+            table = rest.strip()
+            value = table
+
         return QueryTree(type=QueryNodeType.DROP_TABLE, value=value, children=[])
 
 
 class CreateIndexParser(BaseParser):
-    """
-    Syntax:
-        CREATE INDEX ON table_name(column_name)
-        CREATE INDEX ON table_name(column_name) USING BTREE
-        CREATE INDEX ON table_name(column_name) USING B+TREE
-    """
+    """Parser for CREATE INDEX statements."""
 
     def __call__(self, query: str) -> QueryTree:
+        """
+        Parse CREATE INDEX statement into AST.
+
+        Supported syntax:
+            CREATE INDEX <index_name> ON <table_name>(<column_name>)
+            CREATE INDEX <index_name> ON <table_name>(<column_name>) USING <index_type>
+
+        Examples:
+            CREATE INDEX idx_employee_name ON employee(name)
+            CREATE INDEX idx_employee_dept ON employee(dept_id) USING BTREE
+
+        Returns:
+            QueryTree with value format: "<index_name> ON <table_name>(<column_name>) [USING <index_type>]"
+        """
         query_upper = query.upper()
 
-        on_pos = query_upper.find('ON')
-        if on_pos == -1:
-            raise ValueError("CREATE INDEX syntax error: missing ON keyword")
+        # Find INDEX keyword position
+        index_pos = query_upper.find('INDEX')
+        if index_pos == -1:
+            raise ValueError("Invalid CREATE INDEX syntax: INDEX keyword not found")
 
-        on_start = on_pos + 2
-        using_pos = query_upper.find('USING', on_start)
+        # Extract index name (between INDEX and ON)
+        on_pos = query_upper.find('ON', index_pos)
+        if on_pos == -1:
+            raise ValueError("Invalid CREATE INDEX syntax: ON keyword not found")
+
+        index_name = query[index_pos + 5:on_pos].strip()
+        if not index_name:
+            raise ValueError("Invalid CREATE INDEX syntax: index name is required")
+
+        # Extract table name and column (between ON and optional USING)
+        using_pos = query_upper.find('USING', on_pos)
 
         if using_pos != -1:
-            table_col_part = query[on_start:using_pos].strip()
+            # Has USING clause
+            table_column_part = query[on_pos + 2:using_pos].strip()
             index_type = query[using_pos + 5:].strip()
         else:
-            table_col_part = query[on_start:].strip()
-            index_type = "BTREE"  # Default
+            # No USING clause, default to B+TREE
+            table_column_part = query[on_pos + 2:].strip()
+            index_type = "BTREE"
 
-        paren_pos = table_col_part.find('(')
+        # Parse table_name(column_name)
+        paren_pos = table_column_part.find('(')
         if paren_pos == -1:
-            raise ValueError("CREATE INDEX syntax error: missing column specification")
+            raise ValueError("Invalid CREATE INDEX syntax: column specification '(column_name)' not found")
 
-        table_name = table_col_part[:paren_pos].strip()
-        column_part = table_col_part[paren_pos:].strip()
+        table_name = table_column_part[:paren_pos].strip()
+        if not table_name:
+            raise ValueError("Invalid CREATE INDEX syntax: table name is required")
 
-        column_name = column_part.strip('()').strip()
+        # Extract column name from parentheses
+        close_paren = table_column_part.find(')', paren_pos)
+        if close_paren == -1:
+            raise ValueError("Invalid CREATE INDEX syntax: closing parenthesis ')' not found")
 
-        value = f"{table_name} {column_name} {index_type}"
+        column_name = table_column_part[paren_pos + 1:close_paren].strip()
+        if not column_name:
+            raise ValueError("Invalid CREATE INDEX syntax: column name is required")
+
+        # Build value string
+        if using_pos != -1:
+            value = f"{index_name} ON {table_name}({column_name}) USING {index_type}"
+        else:
+            value = f"{index_name} ON {table_name}({column_name})"
         return QueryTree(type=QueryNodeType.CREATE_INDEX, value=value, children=[])
 
 
 class DropIndexParser(BaseParser):
-    """
-    Syntax:
-        DROP INDEX ON table_name(column_name)
-    """
+    """Parser for DROP INDEX statements."""
 
     def __call__(self, query: str) -> QueryTree:
+        """
+        Parse DROP INDEX statement into AST.
+
+        Supported syntax:
+            DROP INDEX <index_name>
+            DROP INDEX <index_name> ON <table_name>
+
+        Examples:
+            DROP INDEX idx_employee_name
+            DROP INDEX idx_employee_name ON employee
+
+        Returns:
+            QueryTree with value format: "<index_name> [ON <table_name>]"
+        """
         query_upper = query.upper()
 
-        on_pos = query_upper.find('ON')
-        if on_pos == -1:
-            raise ValueError("DROP INDEX syntax error: missing ON keyword")
+        # Find INDEX keyword position
+        index_pos = query_upper.find('INDEX')
+        if index_pos == -1:
+            raise ValueError("Invalid DROP INDEX syntax: INDEX keyword not found")
 
-        table_col_part = query[on_pos + 2:].strip()
+        # Extract everything after INDEX
+        rest = query[index_pos + 5:].strip()
 
-        paren_pos = table_col_part.find('(')
-        if paren_pos == -1:
-            raise ValueError("DROP INDEX syntax error: missing column specification")
+        # Check if there's an ON clause
+        on_pos = rest.upper().find('ON')
 
-        table_name = table_col_part[:paren_pos].strip()
-        column_part = table_col_part[paren_pos:].strip()
+        if on_pos != -1:
+            # Has ON clause: DROP INDEX idx_name ON table_name
+            index_name = rest[:on_pos].strip()
+            table_name = rest[on_pos + 2:].strip()
 
-        column_name = column_part.strip('()').strip()
+            if not index_name:
+                raise ValueError("Invalid DROP INDEX syntax: index name is required")
+            if not table_name:
+                raise ValueError("Invalid DROP INDEX syntax: table name is required after ON")
 
-        value = f"{table_name} {column_name}"
+            value = f"{index_name} ON {table_name}"
+        else:
+            # No ON clause: DROP INDEX idx_name
+            index_name = rest.strip()
+
+            if not index_name:
+                raise ValueError("Invalid DROP INDEX syntax: index name is required")
+
+            value = index_name
         return QueryTree(type=QueryNodeType.DROP_INDEX, value=value, children=[])

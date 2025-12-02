@@ -140,13 +140,17 @@ class ProjectionPushdownRule(OptimizationRule):
         import re
         cols: Set[str] = set()
 
+        # Remove string literals first (both single and double quoted)
+        scrubbed = re.sub(r"'[^']*'", ' ', expr)
+        scrubbed = re.sub(r'"[^"]*"', ' ', scrubbed)
+
         # Qualified refs: table.column
-        for m in re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b', expr):
+        for m in re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b', scrubbed):
             tbl, col = m
             cols.add(f"{tbl}.{col}")
 
         # Remove qualified refs from a copy, then pick bare identifiers
-        scrubbed = re.sub(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b', ' ', expr)
+        scrubbed = re.sub(r'\b([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\b', ' ', scrubbed)
 
         # Bare identifiers that are not keywords/numbers/strings
         tokens = re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', scrubbed)

@@ -1,26 +1,25 @@
-import unittest
+import pytest
 from src.optimizer.rules.selection.decomposition import SelectionDecompositionRule
 from src.core.models.query import QueryTree, QueryNodeType
 
-class TestSelectionDecompositionRule(unittest.TestCase):
-    def test_decompose_simple_and(self):
-        rule = SelectionDecompositionRule()
 
-        # QueryTree: selection with AND
-        child = QueryTree(type=QueryNodeType.TABLE, value="employees", children=[], parent=None)
-        node = QueryTree(type=QueryNodeType.SELECTION, value="age > 30 AND salary < 5000", children=[child], parent=None)
-
-        self.assertTrue(rule.is_applicable(node))
-
-        new_tree = rule.apply(node)
-        self.assertIsNotNone(new_tree)
-
-        # Should produce nested selections
-        self.assertEqual(new_tree.type, QueryNodeType.SELECTION)
-        self.assertEqual(new_tree.value, "age > 30")
-        self.assertEqual(new_tree.children[0].type, QueryNodeType.SELECTION)
-        self.assertEqual(new_tree.children[0].value, "salary < 5000")
+@pytest.fixture
+def rule():
+    return SelectionDecompositionRule()
 
 
-if __name__ == '__main__':
-    unittest.main()
+def test_decompose_simple_and(rule):
+    # QueryTree: selection with AND
+    child = QueryTree(type=QueryNodeType.TABLE, value="employees", children=[], parent=None)
+    node = QueryTree(type=QueryNodeType.SELECTION, value="age > 30 AND salary < 5000", children=[child], parent=None)
+
+    assert rule.is_applicable(node)
+
+    new_tree = rule.apply(node)
+    assert new_tree is not None
+
+    # Should produce nested selections
+    assert new_tree.type == QueryNodeType.SELECTION
+    assert new_tree.value == "age > 30"
+    assert new_tree.children[0].type == QueryNodeType.SELECTION
+    assert new_tree.children[0].value == "salary < 5000"

@@ -48,8 +48,41 @@ class SelectionDecompositionRule(OptimizationRule):
         return current_tree
     
     def _split_and_conditions(self, condition: str) -> List[str]:
-        # Split condition by AND operator
+        # Split condition by AND operator while respecting parentheses
         import re
-        # Split by AND (case insensitive) while preserving parentheses
-        parts = re.split(r'\s+AND\s+', condition, flags=re.IGNORECASE)
-        return [part.strip() for part in parts if part.strip()]
+
+        # Find all AND positions (case insensitive)
+        and_pattern = re.compile(r'\s+AND\s+', re.IGNORECASE)
+        matches = list(and_pattern.finditer(condition))
+
+        if not matches:
+            return [condition]
+
+        # Track parentheses depth and find valid split positions
+        valid_splits = []
+        for match in matches:
+            pos = match.start()
+            # Check parentheses balance up to this position
+            depth = 0
+            for i in range(pos):
+                if condition[i] == '(':
+                    depth += 1
+                elif condition[i] == ')':
+                    depth -= 1
+
+            # Only split at top-level ANDs (depth == 0)
+            if depth == 0:
+                valid_splits.append((match.start(), match.end()))
+
+        if not valid_splits:
+            return [condition]
+
+        # Split the condition at valid positions
+        parts = []
+        start = 0
+        for split_start, split_end in valid_splits:
+            parts.append(condition[start:split_start].strip())
+            start = split_end
+        parts.append(condition[start:].strip())
+
+        return [part for part in parts if part]

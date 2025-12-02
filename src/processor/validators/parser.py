@@ -11,8 +11,6 @@ class ParseError(Exception):
     def _format_message(self) -> str:
         if self.token and self.token.value:
             return f"syntax error at or near \"{self.token.value}\""
-        elif "syntax error:" in self.message:
-            return self.message 
         else:
             return f"syntax error"
 
@@ -44,7 +42,7 @@ class SQLParser:
                        <begin_statement> | <commit_statement>
         """
         if not self.current_token:
-            raise ParseError("syntax error: empty query")
+            raise ParseError("empty query")
         
         token_type = self.current_token.type
         
@@ -117,11 +115,20 @@ class SQLParser:
     
     def _parse_from_clause(self) -> None:
         """
-        <from_clause> ::= <table_reference> { <join_clause> }
+        <from_clause> ::= <join_expression> { ',' <join_expression> }
+        """
+        self._parse_join_expression()
+        
+        while self._check(TokenType.COMMA):
+            self._advance()
+            self._parse_join_expression()
+
+    def _parse_join_expression(self) -> None:
+        """
+        <join_expression> ::= <table_reference> { <join_clause> }
         """
         self._parse_table_reference()
         
-        # Handle JOINs
         while self._check_join():
             self._parse_join_clause()
     
@@ -410,9 +417,9 @@ class SQLParser:
             if self.current_token:
                 raise ParseError("syntax error", self.current_token)
             else:
-                raise ParseError("syntax error: unexpected end of input")
+                raise ParseError("unexpected end of input")
         
         token = self._advance()
         if token is None:
-            raise ParseError("syntax error: unexpected end of input")
+            raise ParseError("unexpected end of input")
         return token
