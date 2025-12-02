@@ -26,6 +26,7 @@ class TestFailureRecoveryManagerServices :
     6. Save Checkpoint
         6a. Save Checkpoint Updates Last Checkpoint Line
         6b. Save Checkpoint Stores Active Transactions At Checkpoint
+        6c. Save Checkpoint Applies Committed Changes To Storage Manager
     7. Recover
         7a. Recover Uses Criteria.Match For Each Log Entry
         7b. Recover With Non Existing Transaction
@@ -33,6 +34,7 @@ class TestFailureRecoveryManagerServices :
         7d. Recover Respects Active Transactions At Checkpoint
         7e. Recover With Timestamp Criteria Cuts Off Older Entries
         7f. Recover With Timestamp Criteria When Cutoff After All Entries
+        7c. Recover Skips Entries Before Last Checkpoint
     """
 
     def test_init_1a(self , tmp_path : Path) -> None :
@@ -255,6 +257,59 @@ class TestFailureRecoveryManagerServices :
         assert (checkpoint_entry.get("log_type") == "CHECKPOINT")
         assert (set(checkpoint_entry.get("active_transactions" , [])) == {1})
 
+    def test_save_checkpoint_6c(self , tmp_path : Path) -> None :
+        """
+        6c. Save Checkpoint Applies Committed Changes To Storage Manager
+        - Fungsi save_checkpoint() harus memanggil storage_manager.write_block() untuk setiap CHANGE dari transaksi yang sudah COMMIT setelah checkpoint terakhir.
+        """
+
+        class DummyStorageManager :
+            def __init__(self) -> None :
+                self.calls = []
+
+            def write_block(self , data_write) -> None :
+                self.calls.append(data_write)
+
+        log_path = tmp_path / "wal.jsonl"
+        storage_manager = DummyStorageManager()
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 4 , storage_manager = storage_manager)
+        payload_update = {
+            "table" : "Employee" ,
+            "operation" : "UPDATE" ,
+            "column" : "salary" ,
+            "actual_value" : 20_000 ,
+            "conditions" : [{"column" : "id" , "operator" : "EQ" , "value" : 1}]
+        }
+        record_start = LogRecord(log_type = LogRecordType.START , transaction_id = 1 , item_name = None , old_value = None , new_value = None , active_transactions = [1])
+        record_change_committed = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = 10_000 , new_value = payload_update , active_transactions = [1])
+        record_commit = LogRecord(log_type = LogRecordType.COMMIT , transaction_id = 1 , item_name = None , old_value = None , new_value = None , active_transactions = [1])
+        payload_uncommitted = {
+            "table" : "Employee" ,
+            "operation" : "UPDATE" ,
+            "column" : "age" ,
+            "actual_value" : 30 ,
+            "conditions" : [{"column" : "id" , "operator" : "EQ" , "value" : 2}]
+        }
+        record_change_uncommitted = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "Employee.age" , old_value = 20 , new_value = payload_uncommitted , active_transactions = [2])
+        manager.write_log(record_start)
+        manager.write_log(record_change_committed)
+        manager.write_log(record_commit)
+        manager.write_log(record_change_uncommitted)
+        manager.save_checkpoint()
+        assert (len(storage_manager.calls) == 1)
+        data_write = storage_manager.calls[0]
+        assert (getattr(data_write , "table_name") == "Employee")
+        assert (getattr(data_write , "is_update") is True)
+        data_payload = getattr(data_write , "data")
+        assert (isinstance(data_payload , dict))
+        assert (data_payload.get("salary") == 20_000)
+        conditions = getattr(data_write , "conditions")
+        assert (isinstance(conditions , list))
+        assert (len(conditions) == 1)
+        condition0 = conditions[0]
+        assert (getattr(condition0 , "column") == "id")
+        assert (hasattr(condition0 , "operator"))
+
     def test_recover_7a(self , tmp_path : Path) -> None :
         """
         7a. Recover Uses Criteria.Match For Each Log Entry
@@ -397,3 +452,28 @@ class TestFailureRecoveryManagerServices :
         result = manager.recover(criteria_ts)
         assert (isinstance(result , list))
         assert (len(result) == 0)
+
+    def test_recover_7g(self , tmp_path : Path) -> None :
+        """
+        7g. Recover Handles DDL Create & Drop Table
+        - Fungsi _undo_change() harus mengembalikan aksi yang sesuai untuk DDL, CREATE_TABLE -> DROP TABLE atau DROP_TABLE -> CREATE TABLE.
+        """
+        log_path = tmp_path / "wal_ddl.jsonl"
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 1)
+        record_create = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "DDL.Employee" , old_value = None , new_value = {"operation" : "CREATE_TABLE" , "table" : "Employee"} , active_transactions = [1])
+        old_schema = {"schema" : {"id" : "INT" , "name" : "TEXT"}}
+        record_drop = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 2 , item_name = "DDL.Department" , old_value = old_schema , new_value = {"operation" : "DROP_TABLE" , "table" : "Department"} , active_transactions = [2])
+        manager.write_log(record_create)
+        manager.write_log(record_drop)
+        criteria_transaction1 = RecoverCriteria.from_transaction(1)
+        result_transaction1 = manager.recover(criteria_transaction1)
+        assert (isinstance(result_transaction1 , list))
+        assert (len(result_transaction1) == 1)
+        assert (result_transaction1[0].startswith("DROP TABLE Employee"))
+        assert ("(undo CREATE, txn: 1)" in result_transaction1[0])
+        criteria_transaction2 = RecoverCriteria.from_transaction(2)
+        result_transaction2 = manager.recover(criteria_transaction2)
+        assert (isinstance(result_transaction2 , list))
+        assert (len(result_transaction2) == 1)
+        assert (result_transaction2[0].startswith("CREATE TABLE Department WITH SCHEMA"))
+        assert ("(undo DROP, txn: 2)" in result_transaction2[0])

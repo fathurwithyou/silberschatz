@@ -4,7 +4,7 @@ from pathlib import Path
 import json , time
 from src.core.failure_recovery_manager import IFailureRecoveryManager
 from src.core.models.failure import LogRecord , LogRecordType , RecoverCriteria
-from src.core.models.storage import DataWrite, Condition, ComparisonOperator
+from src.core.models.storage import DataWrite , Condition , ComparisonOperator
 
 class FailureRecoveryManager(IFailureRecoveryManager) :
     """
@@ -275,7 +275,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
     def _undo_change(self, entry: Dict[str, Any], active_txns_at_checkpoint: set = None) -> str:
         # Undo satu perubahan dari log entry.
         # Untuk sekarang, hanya return description action yang akan dilakukan.
-        # Nanti bisa diintegrasikan dengan query processor untuk eksekusi nyata.
+        # Nanti bisa diintegrasikan dengan storage manager untuk eksekusi nyata.
         
         txn_id = entry.get("transaction_id", -1)
         
