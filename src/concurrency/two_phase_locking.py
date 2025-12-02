@@ -1,4 +1,5 @@
 import threading
+from src.core.models.result import Rows
 from src.core.concurrency_manager import IConcurrencyControlManager
 from src.core.models.action import Action
 from src.core.models.response import Response

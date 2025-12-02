@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType, LogRecord, LogRecordType
 from datetime import datetime

@@ -27,6 +27,8 @@ class TokenType(Enum):
     CREATE = "CREATE"
     DROP = "DROP"
     TABLE = "TABLE"
+    CASCADE = "CASCADE"
+    RESTRICT = "RESTRICT"
     AS = "AS"
     INTO = "INTO"
     VALUES = "VALUES"
@@ -99,6 +101,8 @@ class SQLLexer:
         'CREATE': TokenType.CREATE,
         'DROP': TokenType.DROP,
         'TABLE': TokenType.TABLE,
+        'CASCADE': TokenType.CASCADE,
+        'RESTRICT': TokenType.RESTRICT,
         'AS': TokenType.AS,
         'INTO': TokenType.INTO,
         'VALUES': TokenType.VALUES,

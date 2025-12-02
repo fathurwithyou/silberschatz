@@ -310,6 +310,9 @@ class SQLParser:
         self._expect(TokenType.DROP)
         self._expect(TokenType.TABLE)
         self._expect(TokenType.IDENTIFIER)
+
+        if self._check(TokenType.CASCADE) or self._check(TokenType.RESTRICT):
+            self._advance()
     
     def _parse_begin_statement(self) -> None:
         """
