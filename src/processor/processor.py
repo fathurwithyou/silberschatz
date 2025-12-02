@@ -137,8 +137,11 @@ class QueryProcessor(IQueryProcessor):
                 node.children[0].value,
                 node.value,
                 tx_id
-            )      
-        
+            )   
+           
+        elif node.type == QueryNodeType.CREATE_TABLE:
+            return self.ddl_handler._handle_create_table(ParsedQuery(query="", tree=node))
+
         raise ValueError(f"Unknown query type: {node.type}")
     
     def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:

@@ -17,6 +17,8 @@ class DDLHandler:
     def handle(self, query: ParsedQuery) -> ExecutionResult:
         if query.tree.type == QueryNodeType.DROP_TABLE:
             return self._handle_drop_table(query)
+        elif query.tree.type == QueryNodeType.CREATE_TABLE:
+            return self._handle_create_table(query)
         raise SyntaxError("Unsupported DDL operation.")
 
     def _handle_drop_table(self, query: ParsedQuery) -> ExecutionResult:
@@ -54,6 +56,68 @@ class DDLHandler:
             data=None,
             query=query.query
         )
+    
+    def _handle_create_table(self, query: ParsedQuery) -> ExecutionResult:
+        tx_id = self.processor.transaction_id or 0
+        table_def = query.tree.value 
+        
+        table_name = table_def["table_name"]
+        columns = table_def["columns"]
+        primary_keys = table_def.get("primary_keys", [])
+        foreign_keys = table_def.get("foreign_keys", [])
+
+        if table_name in self.processor.storage.list_tables():
+            raise ValueError(f"Table '{table_name}' already exists.")
+
+        seen = set()
+        for col in columns:
+            if col["name"] in seen:
+                raise ValueError(f"Duplicate column name '{col['name']}' in table '{table_name}'.")
+            seen.add(col["name"])
+
+        valid_types = {"INTEGER", "FLOAT", "CHAR", "VARCHAR"}
+        for col in columns:
+            dtype = col["type"].upper()
+            if dtype not in valid_types:
+                raise ValueError(f"Unsupported data type '{dtype}' for column '{col['name']}'.")
+
+        for pk in primary_keys:
+            if pk not in seen:
+                raise ValueError(f"Primary key column '{pk}' does not exist.")
+
+        for fk in foreign_keys:
+            col = fk["column"]
+            ref_table = fk["ref_table"]
+            ref_col = fk["ref_column"]
+
+            if col not in seen:
+                raise ValueError(f"Foreign key column '{col}' does not exist.")
+
+            ref_schema = self.processor.storage.get_table_schema(ref_table)
+            if ref_schema is None:
+                raise ValueError(f"Referenced table '{ref_table}' does not exist.")
+
+            ref_columns = [c.name for c in ref_schema.columns]
+            if ref_col not in ref_columns:
+                raise ValueError(f"Referenced column '{ref_col}' does not exist in '{ref_table}'.")
+
+        table_schema = self.processor.storage.build_table_schema(
+            table_name=table_name,
+            columns=columns,
+            primary_keys=primary_keys,
+            foreign_keys=foreign_keys
+        )
+
+        self.processor.storage.create_table(table_schema)
+
+        return ExecutionResult(
+            transaction_id=tx_id,
+            timestamp=datetime.now(),
+            message=f"Table '{table_name}' created.",
+            data=None,
+            query=query.query
+        )
+
 
     def _parse_drop_table_value(self, value: str) -> Tuple[str, str | None]:
         text = (value or "").strip()

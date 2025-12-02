@@ -294,16 +294,19 @@ class SQLParser:
         
         self._expect(TokenType.LEFT_PAREN)
         
-        # Column definitions
-        self._expect(TokenType.IDENTIFIER)  # column name
-        self._expect(TokenType.IDENTIFIER)  # data type
+        self._expect(TokenType.IDENTIFIER)
+        self._expect(TokenType.IDENTIFIER)
         
         while self._check(TokenType.COMMA):
             self._advance()
-            self._expect(TokenType.IDENTIFIER)  # column name
-            self._expect(TokenType.IDENTIFIER)  # data type
+            self._expect(TokenType.IDENTIFIER)
+            self._expect(TokenType.IDENTIFIER)
         
         self._expect(TokenType.RIGHT_PAREN)
+
+        if self._check(TokenType.SEMICOLON):
+            self._advance()
+
     
     def _parse_drop_statement(self) -> None:
         """
