@@ -85,6 +85,7 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Commit
+                self.processor.transaction_id = None
                 
             return result
 
@@ -100,6 +101,7 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Abort
+                self.processor.transaction_id = None
             
             raise
             
@@ -115,5 +117,6 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Abort
+                self.processor.transaction_id = None
             
             raise e

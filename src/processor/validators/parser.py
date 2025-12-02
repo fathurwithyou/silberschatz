@@ -39,7 +39,7 @@ class SQLParser:
         """
         <statement> ::= <select_statement> | <insert_statement> | <update_statement> | 
                        <delete_statement> | <create_statement> | <drop_statement> | 
-                       <begin_statement> | <commit_statement>
+                       <begin_statement> | <commit_statement> | <abort_statement>
         """
         if not self.current_token:
             raise ParseError("empty query")
@@ -62,6 +62,8 @@ class SQLParser:
             self._parse_begin_statement()
         elif token_type == TokenType.COMMIT:
             self._parse_commit_statement()
+        elif token_type == TokenType.ABORT:
+            self._parse_abort_statement()
         else:
             raise ParseError(f"syntax error", self.current_token)
     
@@ -215,7 +217,7 @@ class SQLParser:
         <insert_statement> ::= INSERT INTO IDENTIFIER [ '(' <column_list> ')' ] 
                               VALUES '(' <value_list> ')'
         <column_list> ::= IDENTIFIER { ',' IDENTIFIER }
-        <value_list> ::= <expression> { ',' <expression> }
+        <value_list> ::= <factor> { ',' <factor> }
         """
         self._expect(TokenType.INSERT)
         self._expect(TokenType.INTO)
@@ -235,11 +237,11 @@ class SQLParser:
         # VALUES clause
         self._expect(TokenType.VALUES)
         self._expect(TokenType.LEFT_PAREN)
-        self._parse_expression()
+        self._parse_factor()
         
         while self._check(TokenType.COMMA):
             self._advance()
-            self._parse_expression()
+            self._parse_factor()
         
         self._expect(TokenType.RIGHT_PAREN)
     
@@ -327,6 +329,12 @@ class SQLParser:
         """
         self._expect(TokenType.COMMIT)
     
+    def _parse_abort_statement(self) -> None:
+        """
+        <abort_statement> ::= ABORT
+        """
+        self._expect(TokenType.ABORT)
+        
     def _parse_expression(self) -> None:
         """
         <expression> ::= <term> { ( AND | OR ) <term> }

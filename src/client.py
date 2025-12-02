@@ -21,6 +21,7 @@ class DatabaseClient:
     
     def disconnect(self):
         """Disconnect from the server."""
+        self.send_query("ABORT")
         if self.socket:
             try:
                 self.socket.close()
@@ -107,7 +108,7 @@ class DatabaseClient:
             while True:
                 query = input("SQL> ").strip()
                 
-                if query.lower() in ['quit', 'exit', '']:
+                if query.lower() in ['quit', 'exit']:
                     print("Disconnecting...")
                     break
                 

@@ -24,6 +24,7 @@ class TokenType(Enum):
     BEGIN = "BEGIN"
     TRANSACTION = "TRANSACTION"
     COMMIT = "COMMIT"
+    ABORT = "ABORT"
     CREATE = "CREATE"
     DROP = "DROP"
     TABLE = "TABLE"
@@ -99,6 +100,7 @@ class SQLLexer:
         'TRANSACTION': TokenType.TRANSACTION,
         'COMMIT': TokenType.COMMIT,
         'CREATE': TokenType.CREATE,
+        'ABORT': TokenType.ABORT,
         'DROP': TokenType.DROP,
         'TABLE': TokenType.TABLE,
         'CASCADE': TokenType.CASCADE,

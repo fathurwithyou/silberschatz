@@ -5,7 +5,7 @@
 ```bnf
 <statement> ::= <select_statement> | <insert_statement> | <update_statement> |
                <delete_statement> | <create_statement> | <drop_statement> |
-               <begin_statement> | <commit_statement>
+               <begin_statement> | <commit_statement> | <abort_statement>
 ```
 
 ## SELECT Statement
@@ -40,7 +40,7 @@
 
 <column_list> ::= IDENTIFIER { ',' IDENTIFIER }
 
-<value_list> ::= <expression> { ',' <expression> }
+<value_list> ::= <factor> { ',' <factor> }
 ```
 
 ## UPDATE Statement
@@ -77,6 +77,8 @@
 <begin_statement> ::= BEGIN TRANSACTION
 
 <commit_statement> ::= COMMIT
+
+<abort_statement> ::= ABORT
 ```
 
 ## Expressions and Terms

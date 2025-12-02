@@ -147,7 +147,7 @@ class QueryProcessor(IQueryProcessor):
         """
         
         ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
-        tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
+        tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT, QueryNodeType.ABORT]
         if query_tree.type in ddl_type:
             return QueryTypeEnum.DDL
         elif query_tree.type in tcl_type:

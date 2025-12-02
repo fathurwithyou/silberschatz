@@ -2,7 +2,6 @@ import sys
 import os
 import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from src.core.models import ExecutionResult
 from src.processor.processor import QueryProcessor
 from src.concurrency.concurrency_manager import ConcurrencyControlManager
@@ -19,27 +18,24 @@ class DatabaseServer:
     def __init__(self, host: str = '127.0.0.1', port: int = 12345):
         self.host = host
         self.port = port
+        self.storage_manager = None
+        self.concurrency_manager = None
+        self.failure_recovery_manager = None
+        self.query_optimizer = None
         
     def initialize_components(self, data_dir="data_test"):
         """Initialize all database components."""
-        storage_manager = StorageManager(data_dir)
-        query_optimizer = QueryOptimizer(storage_manager=storage_manager)
-        concurrency_manager = ConcurrencyControlManager()
-        failure_recovery_manager = FailureRecoveryManager()
-        
-        self.query_processor = QueryProcessor(
-            query_optimizer,
-            concurrency_manager,
-            failure_recovery_manager,
-            storage_manager
-        )
+        self.storage_manager = StorageManager(data_dir)
+        self.query_optimizer = QueryOptimizer(storage_manager=self.storage_manager)
+        self.concurrency_manager = ConcurrencyControlManager('2PL')
+        self.failure_recovery_manager = FailureRecoveryManager()
     
     def format_execution_result(self, result: ExecutionResult, execution_time: float) -> str:
         """Format execution result into a table string."""
         output = []
         
         if not result.data:
-            return "No Data returned.\n"
+            return ""
         
         if result.message and (result.message == "update successful" or result.message == "delete successful" or result.message == "insert successful"):
             if "update" in result.message:
@@ -109,6 +105,20 @@ class DatabaseServer:
         """Handle a single client connection in a separate thread."""
         client_name = f"{addr[0]}:{addr[1]}"
         print(f"[{client_name}] Client connected")
+        if not self.query_optimizer or \
+            not self.concurrency_manager or \
+            not self.failure_recovery_manager or \
+            not self.storage_manager:
+                print(f"Server components not initialized")
+                conn.close()
+                return
+        
+        query_processor = QueryProcessor(
+            self.query_optimizer,
+            self.concurrency_manager,
+            self.failure_recovery_manager,
+            self.storage_manager
+        )
         
         try:
             while True:
@@ -122,7 +132,7 @@ class DatabaseServer:
                 # Eksekusi
                 try:
                     start_time = time.time()
-                    result_obj = self.query_processor.execute_query(query_str)
+                    result_obj = query_processor.execute_query(query_str)
                     end_time = time.time()
                     execution_time = end_time - start_time
                 except Exception as e:
@@ -148,12 +158,17 @@ class DatabaseServer:
             
             server_sock.bind((self.host, self.port))
             server_sock.listen(5)
+            server_sock.settimeout(1.0)
+            
             print(f"Server listening on {self.host}:{self.port}")
             print("Waiting for client connections...")
             
             try:
                 while True:
-                    conn, addr = server_sock.accept()
+                    try:
+                        conn, addr = server_sock.accept()
+                    except socket.timeout:
+                        continue 
                     
                     # Create a new thread for each client
                     client_thread = threading.Thread(
