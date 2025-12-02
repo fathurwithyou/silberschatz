@@ -34,7 +34,9 @@ class TestFailureRecoveryManagerServices :
         7d. Recover Respects Active Transactions At Checkpoint
         7e. Recover With Timestamp Criteria Cuts Off Older Entries
         7f. Recover With Timestamp Criteria When Cutoff After All Entries
-        7g. Recover Skips Entries Before Last Checkpoint
+        7g. Recover Handles DDL Create & Drop Table
+        7h. Recover Undo UPDATE With Storage Manager
+        7i. Recover Undo INSERT With Storage Manager
     """
 
     def test_init_1a(self , tmp_path : Path) -> None :
@@ -262,13 +264,15 @@ class TestFailureRecoveryManagerServices :
         6c. Save Checkpoint Applies Committed Changes To Storage Manager
         - Fungsi save_checkpoint() harus memanggil storage_manager.write_block() untuk setiap CHANGE dari transaksi yang sudah COMMIT setelah checkpoint terakhir.
         """
-
         class DummyStorageManager :
             def __init__(self) -> None :
                 self.calls = []
 
             def write_block(self , data_write) -> None :
                 self.calls.append(data_write)
+
+            def delete_block(self , data_delete) -> None :
+                self.calls.append(data_delete)
 
         log_path = tmp_path / "wal.jsonl"
         storage_manager = DummyStorageManager()
@@ -477,3 +481,94 @@ class TestFailureRecoveryManagerServices :
         assert (len(result_transaction2) == 1)
         assert (result_transaction2[0].startswith("CREATE TABLE Department WITH SCHEMA"))
         assert ("(undo DROP, txn: 2)" in result_transaction2[0])
+    
+    def test_recover_7h(self , tmp_path : Path) -> None :
+        """
+        7h. Recover Undo UPDATE With Storage Manager
+        - Untuk log CHANGE dengan old_value dict dan payload UPDATE, Fungsi _undo_change() harus memanggil storage_manager.write_block() dengan DataWrite yang berisi data = old_value dan conditions yang benar.
+        """
+        class DummyStorageManager :
+            def __init__(self) -> None :
+                self.calls = []
+
+            def write_block(self , data_write) -> None :
+                self.calls.append(data_write)
+
+            def delete_block(self , data_delete) -> None :
+                self.calls.append(data_delete)
+
+        log_path = tmp_path / "wal_update.jsonl"
+        storage_manager = DummyStorageManager()
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 1 , storage_manager = storage_manager)
+        old_row = {"salary" : 10_000}
+        payload_update = {
+            "table" : "Employee" ,
+            "operation" : "UPDATE" ,
+            "column" : "salary" ,
+            "actual_value" : 20_000 ,
+            "conditions" : [{"column" : "id" , "operator" : "EQ" , "value" : 1}]
+        }
+        record_change = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee.salary" , old_value = old_row , new_value = payload_update , active_transactions = [1])
+        manager.write_log(record_change)
+        criteria = RecoverCriteria.from_transaction(1)
+        result = manager.recover(criteria)
+        assert (isinstance(result , list))
+        assert (len(result) == 1)
+        assert (result[0].startswith("RESTORED Employee"))
+        assert ("(txn: 1)" in result[0])
+        assert (len(storage_manager.calls) == 1)
+        data_write = storage_manager.calls[0]
+        assert (getattr(data_write , "table_name") == "Employee")
+        assert (getattr(data_write , "is_update") is True)
+        data_payload = getattr(data_write , "data")
+        assert (isinstance(data_payload , dict))
+        assert (data_payload.get("salary") == 10_000)
+        conditions = getattr(data_write , "conditions")
+        assert (isinstance(conditions , list))
+        assert (len(conditions) == 1)
+        conditions0 = conditions[0]
+        assert (getattr(conditions0 , "column") == "id")
+        assert (hasattr(conditions0 , "operator"))
+
+    def test_recover_7i(self , tmp_path : Path) -> None :
+        """
+        7i. Recover Undo INSERT With Storage Manager
+        - Untuk log CHANGE dengan old_value = None dan payload INSERT, Fungsi _undo_change() harus memanggil storage_manager.delete_block() dengan DataDeletion yang punya table_name benar dan conditions dari actual_value.
+        """
+        class DummyStorageManager :
+            def __init__(self) -> None :
+                self.calls = []
+
+            def write_block(self , data_write) -> None :
+                self.calls.append(data_write)
+
+            def delete_block(self , data_delete) -> None :
+                self.calls.append(data_delete)
+
+        log_path = tmp_path / "wal_insert.jsonl"
+        storage_manager = DummyStorageManager()
+        manager = FailureRecoveryManager(log_path = log_path , buffer_max = 1 , storage_manager = storage_manager)
+        payload_insert = {
+            "table" : "Employee" ,
+            "operation" : "INSERT" ,
+            "actual_value" : {"id" : 1 , "name" : "Alice"}
+        }
+        record_change = LogRecord(log_type = LogRecordType.CHANGE , transaction_id = 1 , item_name = "Employee" , old_value = None , new_value = payload_insert , active_transactions = [1])
+        manager.write_log(record_change)
+        criteria = RecoverCriteria.from_transaction(1)
+        result = manager.recover(criteria)
+        assert (isinstance(result , list))
+        assert (len(result) == 1)
+        assert (result[0].startswith("DELETED Employee"))
+        assert ("(undo INSERT, txn: 1)" in result[0])
+        assert (len(storage_manager.calls) == 1)
+        data_delete = storage_manager.calls[0]
+        assert (getattr(data_delete , "table_name") == "Employee")
+        conditions = getattr(data_delete , "conditions")
+        assert (isinstance(conditions , list))
+        assert (len(conditions) >= 2)
+        columns = {getattr(cond , "column") for (cond) in (conditions)}
+        assert ("id" in columns)
+        assert ("name" in columns)
+        for (cond) in (conditions) :
+            assert (hasattr(cond , "operator"))
