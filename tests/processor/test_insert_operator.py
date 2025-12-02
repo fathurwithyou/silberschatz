@@ -74,6 +74,16 @@ def _make_mock_storage_manager():
 
 def _make_mock_ccm():
     """Create a mock concurrency control manager."""
+    mock = Mock()
+    # Mock the validate_object method to return allowed=True
+    mock.validate_object.return_value = Mock(allowed=True)
+    # Mock get_active_transactions to return a tuple where [1] is a list
+    mock.get_active_transactions.return_value = (Mock(), [])  # (result, active_transactions_list)
+    return mock
+
+
+def _make_mock_frm():
+    """Create a mock failure recovery manager."""
     return Mock()
 
 
@@ -85,12 +95,13 @@ def test_insert_with_all_columns_specified():
     """Test inserting with all columns specified."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     storage.write_block = Mock(return_value=1)
 
     values_str = "(id, name, salary, department) (1, 'John Doe', 50000, 'Engineering')"
-    result = operator.execute("employees", values_str)
+    result = operator.execute("employees", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -114,12 +125,13 @@ def test_insert_with_partial_columns_specified():
     """Test inserting with only some columns specified."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     storage.write_block = Mock(return_value=1)
 
     values_str = "(id, name) (2, 'Jane Smith')"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -138,12 +150,13 @@ def test_insert_without_columns_specified():
     """Test inserting without specifying columns (values in schema order)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     storage.write_block = Mock(return_value=1)
 
     values_str = "(3, 'Bob Johnson', 'bob@email.com', 30)"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -162,12 +175,13 @@ def test_insert_with_quoted_values():
     """Test inserting with quoted string values."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
     
     storage.write_block = Mock(return_value=1)
 
     values_str = "(4, 'Alice Brown', 'alice@test.com', 25)"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -179,7 +193,7 @@ def test_insert_with_quoted_values():
     storage.write_block.reset_mock()
 
     values_str = '(5, "Charlie Wilson", "charlie@test.com", 35)'
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -193,12 +207,13 @@ def test_insert_with_null_values():
     """Test inserting with NULL values."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     storage.write_block = Mock(return_value=1)
 
     values_str = "(6, 'David Lee', NULL, NULL)"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -216,12 +231,13 @@ def test_insert_with_missing_values_for_nullable_columns():
     """Test inserting with missing values for nullable columns."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
     
     storage.write_block = Mock(return_value=1)
 
     values_str = "(7, 'Eva Garcia')"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -237,12 +253,13 @@ def test_insert_parse_value_list_with_commas_in_quotes():
     """Test parsing values with commas inside quoted strings."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
     
     storage.write_block = Mock(return_value=1)
 
     values_str = "(8, 'Smith, John Jr.', 'john.smith@email.com', 40)"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -256,12 +273,13 @@ def test_insert_parse_value_list_with_escaped_quotes():
     """Test parsing values with escaped quotes."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
     
     storage.write_block = Mock(return_value=1)
 
     values_str = "(9, 'O''Connor', 'oconnor@email.com', 28)"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -274,12 +292,13 @@ def test_insert_type_conversion():
     """Test automatic type conversion of values."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
     
     storage.write_block = Mock(return_value=1)
 
     values_str = "(10, 'Test User', 'test@email.com', '42')"
-    result = operator.execute("users", values_str)
+    result = operator.execute("users", values_str, tx_id=1)
 
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -293,69 +312,75 @@ def test_insert_invalid_table():
     """Test inserting into non-existent table."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     values_str = "(1, 'Test')"
     
     with pytest.raises(ValueError, match="Table 'nonexistent' does not exist"):
-        operator.execute("nonexistent", values_str)
+        operator.execute("nonexistent", values_str, tx_id=1)
 
 
 def test_insert_multiple_table_names():
     """Test inserting with multiple table names (should fail)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     values_str = "(1, 'Test')"
     
     with pytest.raises(ValueError, match="InsertOperator only supports inserting into a single table"):
-        operator.execute("table1 table2", values_str)
+        operator.execute("table1 table2", values_str, tx_id=1)
 
 
 def test_insert_mismatched_columns_and_values():
     """Test inserting with mismatched number of columns and values."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     # More columns than values
     values_str = "(id, name, email, age) (1, 'Test')"
     
     with pytest.raises(ValueError, match="Number of columns"):
-        operator.execute("users", values_str)
+        operator.execute("users", values_str, tx_id=1)
 
 
 def test_insert_invalid_format_missing_parentheses():
     """Test inserting with invalid format (missing parentheses)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     values_str = "1, 'Test User'"
     
     with pytest.raises(ValueError, match="Invalid format"):
-        operator.execute("users", values_str)
+        operator.execute("users", values_str, tx_id=1)
 
 
 def test_insert_invalid_type_conversion():
     """Test inserting with invalid type conversion."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     # Try to insert non-integer value for integer column
     values_str = "(id, name) ('not_a_number', 'Test User')"
     
     with pytest.raises(ValueError, match="Cannot convert"):
-        operator.execute("users", values_str)
+        operator.execute("users", values_str, tx_id=1)
 
 
 def test_parse_value_list_empty_values():
     """Test parsing empty values."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     # Test with empty string values
     result = operator._parse_value_list("'', 'Test', ''")
@@ -366,7 +391,8 @@ def test_parse_value_with_different_data_types():
     """Test _parse_value method with different data types."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = InsertOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = InsertOperator(ccm, storage, frm)
 
     # Test INTEGER conversion
     result = operator._parse_value("42", DataType.INTEGER)

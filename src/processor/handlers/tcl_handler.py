@@ -16,6 +16,9 @@ class TCLHandler:
         
     def handle(self, query: ParsedQuery) -> ExecutionResult:
         if query.tree.type == QueryNodeType.BEGIN_TRANSACTION:
+            if self.processor.transaction_id is not None:
+                raise Exception("A transaction is already active.")
+            
             self.processor.transaction_id = self.processor.ccm.begin_transaction()
             
             self.processor.frm.write_log(LogRecord(

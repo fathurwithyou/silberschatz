@@ -1,15 +1,17 @@
 from typing import Dict, Any, List
-from src.core import IConcurrencyControlManager, IStorageManager
+from src.core import IConcurrencyControlManager, IStorageManager, IFailureRecoveryManager
 from src.core.models import (
-    DataWrite, TableSchema, DataType, Rows
+    DataWrite, TableSchema, DataType, Rows, LogRecord, LogRecordType, Action
 )
+from ..exceptions import AbortError
 
 class InsertOperator:
-    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager):
+    def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager, frm: IFailureRecoveryManager):
         self.ccm = ccm
         self.storage_manager = storage_manager
+        self.frm = frm
 
-    def execute(self, table_name: str, values: str) -> Rows:
+    def execute(self, table_name: str, values: str, tx_id: int) -> Rows:
 
         if len(table_name.split()) != 1:
             raise ValueError("InsertOperator only supports inserting into a single table.")
@@ -22,6 +24,21 @@ class InsertOperator:
         parsed_row = self._build_row(schema, parsed_values)
         parsed_row = self._transform_col_name(parsed_row)
 
+        validate = self.ccm.validate_object(table_name, tx_id, Action.WRITE)
+        if not validate.allowed:
+            raise AbortError(tx_id, table_name, Action.WRITE, 
+                           f"Write access denied by concurrency control manager")
+
+        log_record = LogRecord(
+            log_type=LogRecordType.CHANGE,
+            transaction_id=tx_id,
+            item_name=table_name,
+            old_value=None,
+            new_value=parsed_row,
+            active_transactions=self.ccm.get_active_transactions()[1]
+        )
+        self.frm.write_log(log_record)
+    
         data_write = DataWrite(
             table_name=table_name,
             data=parsed_row,

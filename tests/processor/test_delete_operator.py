@@ -58,6 +58,16 @@ def _make_mock_storage_manager():
 
 def _make_mock_ccm():
     """Create a mock concurrency control manager."""
+    mock = Mock()
+    # Mock the validate_object method to return allowed=True
+    mock.validate_object.return_value = Mock(allowed=True)
+    # Mock get_active_transactions to return a tuple where [1] is a list
+    mock.get_active_transactions.return_value = (Mock(), [])  # (result, active_transactions_list)
+    return mock
+
+
+def _make_mock_frm():
+    """Create a mock failure recovery manager."""
     return Mock()
 
 
@@ -91,7 +101,8 @@ def test_delete_single_row():
     """Test deleting a single row."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(return_value=1)
 
@@ -100,7 +111,7 @@ def test_delete_single_row():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert isinstance(result, Rows)
     assert result.rows_count == 1
@@ -120,7 +131,8 @@ def test_delete_multiple_rows():
     """Test deleting multiple rows."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(return_value=1)
 
@@ -132,7 +144,7 @@ def test_delete_multiple_rows():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert isinstance(result, Rows)
     assert result.rows_count == 2
@@ -154,7 +166,8 @@ def test_delete_with_qualified_column_names():
     """Test deleting rows with fully qualified column names (table.column)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(return_value=1)
 
@@ -163,7 +176,7 @@ def test_delete_with_qualified_column_names():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert result.rows_count == 1
     
@@ -176,7 +189,8 @@ def test_delete_with_mixed_column_names():
     """Test deleting rows with mixed qualified and unqualified column names."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(return_value=1)
 
@@ -186,7 +200,7 @@ def test_delete_with_mixed_column_names():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert result.rows_count == 1
     
@@ -199,7 +213,8 @@ def test_delete_no_rows_affected():
     """Test delete operation when no rows are affected."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(return_value=0)
 
@@ -208,7 +223,7 @@ def test_delete_no_rows_affected():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert result.rows_count == 0
     storage.delete_block.assert_called_once()
@@ -218,7 +233,8 @@ def test_delete_partial_success():
     """Test delete operation with partial success (some deletes fail)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     storage.delete_block = Mock(side_effect=[1, 0, 1])
 
@@ -231,7 +247,7 @@ def test_delete_partial_success():
     
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
-    result = operator.execute(rows)
+    result = operator.execute(rows, tx_id=1)
     
     assert result.rows_count == 2
     assert storage.delete_block.call_count == 3
@@ -246,7 +262,8 @@ def test_delete_multiple_tables_error():
     """Test delete operation with multiple table schemas (should fail)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     # Create two different table schemas
     schema1 = create_test_schema()
@@ -260,14 +277,15 @@ def test_delete_multiple_tables_error():
     rows = Rows(data=data, rows_count=len(data), schema=[schema1, schema2])
     
     with pytest.raises(ValueError, match="DeleteOperator only supports single table deletions"):
-        operator.execute(rows)
+        operator.execute(rows, tx_id=1)
 
 
 def test_delete_no_primary_key_error():
     """Test delete operation on table without primary key (should fail)."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     schema_no_pk = TableSchema(
         table_name="logs",
@@ -282,14 +300,15 @@ def test_delete_no_primary_key_error():
     rows = Rows(data=data, rows_count=len(data), schema=[schema_no_pk])
     
     with pytest.raises(ValueError, match="Table 'logs' does not have a primary key"):
-        operator.execute(rows)
+        operator.execute(rows, tx_id=1)
 
 
 def test_delete_missing_primary_key_in_data():
     """Test delete operation when primary key is missing from row data."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     schema = create_test_schema()
     data = [{"employees.name": "John Doe", "employees.salary": 50000, "employees.department": "Engineering"}]
@@ -297,14 +316,15 @@ def test_delete_missing_primary_key_in_data():
     rows = Rows(data=data, rows_count=len(data), schema=[schema])
     
     with pytest.raises(ValueError, match="Primary key 'id' missing in row data"):
-        operator.execute(rows)
+        operator.execute(rows, tx_id=1)
 
 
 def test_transform_col_name_method():
     """Test the _transform_col_name method directly."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     row_with_qualified = {
         "employees.id": 1,
@@ -353,7 +373,8 @@ def test_transform_col_name_with_nested_dots():
     """Test _transform_col_name with nested dot notation."""
     storage = _make_mock_storage_manager()
     ccm = _make_mock_ccm()
-    operator = DeleteOperator(ccm, storage)
+    frm = _make_mock_frm()
+    operator = DeleteOperator(ccm, storage, frm)
 
     row_nested = {
         "schema.employees.id": 1,
