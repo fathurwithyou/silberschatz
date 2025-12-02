@@ -34,7 +34,7 @@ class TestFailureRecoveryManagerServices :
         7d. Recover Respects Active Transactions At Checkpoint
         7e. Recover With Timestamp Criteria Cuts Off Older Entries
         7f. Recover With Timestamp Criteria When Cutoff After All Entries
-        7c. Recover Skips Entries Before Last Checkpoint
+        7g. Recover Skips Entries Before Last Checkpoint
     """
 
     def test_init_1a(self , tmp_path : Path) -> None :
