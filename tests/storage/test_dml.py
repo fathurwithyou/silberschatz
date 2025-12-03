@@ -244,7 +244,35 @@ class TestReadOperations:
 
 
 class TestBufferReadOperations:
-    
+
+    def test_buffer_fallback_to_disk(self, employees_table):
+        retrieval = DataRetrieval(
+            table_name="employees",
+            columns=["*"]
+        )
+        
+        result_disk = employees_table.read_block(retrieval)
+        assert result_disk.rows_count == 5
+        
+        employees_table.buffer_pool.frames.clear()
+        employees_table.buffer_pool.hit_count = 0
+        employees_table.buffer_pool.miss_count = 0
+        
+        stats_before = employees_table.get_buffer_stats()
+        assert stats_before["hit_count"] == 0
+        assert stats_before["miss_count"] == 0
+        
+        result_buffer = employees_table.read_buffer(retrieval)
+        
+        assert result_buffer.rows_count == 5
+        assert len(result_buffer.data) == 5
+        assert result_buffer.data == result_disk.data
+        
+        stats_after = employees_table.get_buffer_stats()
+        assert stats_after["pages_in_buffer"] >= 1
+        assert stats_after["miss_count"] >= 1
+        assert stats_after["hit_count"] == 0
+
     def test_read_all_rows_buffer(self, employees_table):
         retrieval = DataRetrieval(
             table_name="employees",
