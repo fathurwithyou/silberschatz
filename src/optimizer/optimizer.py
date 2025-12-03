@@ -1,7 +1,6 @@
 from typing import List, Optional, Dict
 from src.core.models import ParsedQuery
 from src.core.models.query import QueryTree
-from src.core.models.storage import Statistic
 from src.core import IQueryOptimizer, IStorageManager
 from .parser import QueryParser
 from .cost.cost_model import CostModel
@@ -24,7 +23,6 @@ class QueryOptimizer(IQueryOptimizer):
 
     def __init__(self,
                  storage_manager: IStorageManager,
-                 rules: Optional[List] = None,
                  max_iterations: int = 10,
                  num_candidates: int = 5,
                  use_heuristics: bool = True,
@@ -36,19 +34,16 @@ class QueryOptimizer(IQueryOptimizer):
         self._num_candidates = num_candidates
         self._use_heuristics = use_heuristics
 
-        if rules is not None:
-            self._rules = rules
-        else:
-            self._rules = [
-                JoinCommutativityRule(),
-                JoinAssociativityRule(prefer_right_deep=False),
-                ProjectionEliminationRule(),
-                SelectionCartesianProductRule(),
-                SelectionCommutativityRule(),
-                SelectionDecompositionRule(),
-                SelectionThetaJoinRule(),
-                SelectionJoinDistributionRule(self._storage_manager),
-            ]
+        self._rules = [
+            JoinCommutativityRule(),
+            JoinAssociativityRule(prefer_right_deep=False),
+            ProjectionEliminationRule(),
+            SelectionCartesianProductRule(),
+            SelectionCommutativityRule(),
+            SelectionDecompositionRule(),
+            SelectionThetaJoinRule(),
+            SelectionJoinDistributionRule(self._storage_manager),
+        ]
 
         self._cost_model = CostModel(storage_manager=self._storage_manager)
 
