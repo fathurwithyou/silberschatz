@@ -4,7 +4,7 @@ from pathlib import Path
 import json , time
 from src.core.failure_recovery_manager import IFailureRecoveryManager
 from src.core.models.failure import LogRecord , LogRecordType , RecoverCriteria
-from src.core.models.storage import DataWrite , Condition , ComparisonOperator
+from src.core.models.storage import DataWrite , Condition , ComparisonOperator, DataDeletion, TableSchema, ColumnDefinition
 
 class FailureRecoveryManager(IFailureRecoveryManager) :
     """
@@ -16,6 +16,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         log_path: str | Path = "wal.jsonl",
         *,
         buffer_max: int = 256,
+        checkpoint_interval: int = 60,
         query_processor: Optional[object] = None,
         storage_manager: Optional[object] = None,
         meta_path: Optional[str | Path] = None,
@@ -31,8 +32,12 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
 
         # Konfigurasi runtime
         self._buffer_max = max(int(buffer_max), 1)
+        self.checkpoint_interval = checkpoint_interval
         self._buffer_size = 0  
         self.buffer: List[LogRecord] = []
+        self.active_transactions = set()
+        self.last_checkpoint_time = time.time()
+        self.lines_written_since_last_checkpoint = 0
         
         # Hook untuk integrasi dengan komponen lain
         self.query_processor = query_processor
@@ -57,148 +62,149 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             for record in self.buffer:
                 log_entry = record.to_dict()
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        
+        self.lines_written_since_last_checkpoint += len(self.buffer)
         self.buffer.clear()
+        self._buffer_size = 0
+
 
     def write_log(self, info: LogRecord):
         if info:
+            # Update active transactions
+            if info.log_type == LogRecordType.START:
+                self.active_transactions.add(info.transaction_id)
+            elif info.log_type in (LogRecordType.COMMIT, LogRecordType.ABORT):
+                self.active_transactions.discard(info.transaction_id)
+
             self.buffer.append(info)
             self._buffer_size += 1
 
-        if (self._buffer_size >= self._buffer_max or (info and info.log_type in [LogRecordType.COMMIT, LogRecordType.ABORT])):
+        # Check auto-checkpoint conditions
+        should_checkpoint = False
+        if self._buffer_size >= self._buffer_max:
+             should_checkpoint = True
+        elif (time.time() - self.last_checkpoint_time) >= self.checkpoint_interval:
+             should_checkpoint = True
+
+        if should_checkpoint:
+            self.save_checkpoint()
+        elif (info and info.log_type in [LogRecordType.COMMIT, LogRecordType.ABORT]):
             self._flush_buffer_to_disk()
-            self._buffer_size = 0
 
 
     def save_checkpoint(self):
             """
             Menyimpan checkpoint ke dalam log.
             """
-            # Step 1: Flush buffer WAL ke disk
+            # Step 1: Apply changes from buffer to storage
+            if self.storage_manager:
+                for record in self.buffer:
+                    if record.log_type == LogRecordType.CHANGE:
+                        self._apply_change(record)
+
+            # Step 2: Flush buffer WAL ke disk
             self._flush_buffer_to_disk()
             
-            # Step 2: Baca metadata
+            # Step 3: Baca metadata
             meta = self._read_meta()
             last_checkpoint_line = meta.get("last_checkpoint_line", 0)
             
-            # Step 3: Identifikasi transaksi
-            active_transactions = set()
-            committed_transactions = set()
-            log_entries = []
-            
-            current_line = 0
-            if self.log_path.exists():
-                with self.log_path.open("r", encoding="utf-8") as f:
-                    for line_num, line in enumerate(f, 1):
-                        current_line = line_num
-                        if line_num <= last_checkpoint_line:
-                            continue
-                            
-                        if line.strip():
-                            try:
-                                entry = json.loads(line.strip())
-                                log_entries.append(entry)
-                                
-                                # Parse Enum name back to string for comparison if needed, 
-                                # or compare string directly from JSON
-                                log_type = entry.get("log_type") 
-                                txn_id = entry.get("transaction_id")
-                                
-                                if log_type == "START":
-                                    active_transactions.add(txn_id)
-                                elif log_type == "COMMIT":
-                                    committed_transactions.add(txn_id)
-                                    active_transactions.discard(txn_id)
-                                elif log_type == "ABORT":
-                                    active_transactions.discard(txn_id)
-                            except json.JSONDecodeError:
-                                continue
-            
-            # Step 4: Apply committed changes ke physical storage
-            if self.storage_manager:
-                for entry in log_entries:
-                    log_type = entry.get("log_type")
-                    txn_id = entry.get("transaction_id")
-                    
-                    # Hanya apply changes dari committed transactions
-                    if log_type == "CHANGE" and txn_id in committed_transactions:
-                        try:
-                            payload = entry.get("new_value")
-                            
-                            if isinstance(payload, dict):
-                                table_name = payload.get("table")
-                                operation = payload.get("operation")
-                                conditions_raw = payload.get("conditions", [])
-                                
-                                # Reconstruct Conditions
-                                conditions = []
-                                for c in conditions_raw:
-                                    if isinstance(c, dict):
-                                        try:
-                                            # Try to map operator string to Enum
-                                            op_val = c.get("operator")
-                                            # Handle if operator is stored as name (EQ) or value (=)
-                                            if op_val in [e.value for e in ComparisonOperator]:
-                                                op_enum = ComparisonOperator(op_val)
-                                            elif op_val in [e.name for e in ComparisonOperator]:
-                                                op_enum = ComparisonOperator[op_val]
-                                            else:
-                                                # Default or skip if unknown
-                                                continue
-                                                
-                                            conditions.append(Condition(
-                                                column=c.get("column"), 
-                                                operator=op_enum, 
-                                                value=c.get("value")
-                                            ))
-                                        except Exception:
-                                            continue
-                                
-                                is_update = (operation == "UPDATE")
-                                
-                                # Construct data dictionary
-                                if is_update:
-                                    col = payload.get("column")
-                                    val = payload.get("actual_value")
-                                    # If column is specified, it's a single column update
-                                    data = {col: val} if col else val
-                                else:
-                                    # INSERT: actual_value should be the row dict
-                                    data = payload.get("actual_value")
-                                
-                                data_write_obj = DataWrite(
-                                    table_name=table_name,
-                                    data=data,
-                                    is_update=is_update,
-                                    conditions=conditions
-                                )
-                                self.storage_manager.write_block(data_write_obj)
-                        except Exception as e:
-                            print(f"Error applying log to storage: {e}")
-            
-            # Step 5: (Skipped - Storage Manager has no public flush method in spec)
-            
-            # Step 6: Buat dan tulis checkpoint log entry
-            # UPDATED: Now using your LogRecord definition correctly
+            # Step 4: Buat dan tulis checkpoint log entry
             checkpoint_record = LogRecord(
                 log_type=LogRecordType.CHECKPOINT,
                 transaction_id=-1,
-                item_name=None, # Checkpoint doesn't need an item name
+                item_name=None,
                 old_value=None,
                 new_value=None,
-                active_transactions=list(active_transactions) # Pass directly!
+                active_transactions=list(self.active_transactions)
             )
             
             with self.log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(checkpoint_record.to_dict(), ensure_ascii=False) + "\n")
-                current_line += 1
             
-            # Step 7: Update metadata
+            # Update counters
+            self.lines_written_since_last_checkpoint += 1
+            current_line = last_checkpoint_line + self.lines_written_since_last_checkpoint
+            
+            # Step 5: Update metadata
             meta["last_checkpoint_line"] = current_line
             meta["last_checkpoint_time"] = time.time()
-            meta["active_transactions_at_checkpoint"] = list(active_transactions)
+            meta["active_transactions_at_checkpoint"] = list(self.active_transactions)
             self._write_meta(meta)
             
-            self._buffer_size = 0
+            # Reset counter for next checkpoint
+            self.lines_written_since_last_checkpoint = 0
+            self.last_checkpoint_time = time.time()
+
+    def _apply_change(self, record: LogRecord):
+        if not self.storage_manager:
+            return
+
+        new_value = record.new_value
+        old_value = record.old_value
+        
+        # 1. DDL: CREATE/DROP TABLE
+        if isinstance(new_value, dict) and "operation" in new_value:
+            operation = new_value.get("operation")
+            table_name = new_value.get("table")
+            
+            if operation == "CREATE_TABLE":
+                schema_dict = new_value.get("schema")
+                if schema_dict:
+                    try:
+                        columns = [ColumnDefinition(**c) for c in schema_dict.get("columns", [])]
+                        schema = TableSchema(table_name=schema_dict["table_name"], columns=columns, primary_key=schema_dict.get("primary_key"))
+                        self.storage_manager.create_table(schema)
+                    except Exception:
+                        pass 
+            
+            elif operation == "DROP_TABLE":
+                try:
+                    self.storage_manager.drop_table(table_name)
+                except Exception:
+                    pass
+            return
+
+        # 2. DML
+        payload = new_value if isinstance(new_value, dict) and "table" in new_value else None
+        if not payload:
+            return
+
+        table = payload.get("table")
+        data = payload.get("data")
+        conditions_dicts = payload.get("conditions", [])
+        
+        conditions = []
+        for c in conditions_dicts:
+            try:
+                op_val = c.get("operator")
+                if op_val in [e.value for e in ComparisonOperator]:
+                    op_enum = ComparisonOperator(op_val)
+                elif op_val in [e.name for e in ComparisonOperator]:
+                    op_enum = ComparisonOperator[op_val]
+                else:
+                    continue
+                conditions.append(Condition(column=c.get("column"), operator=op_enum, value=c.get("value")))
+            except Exception:
+                continue
+
+        try:
+            # INSERT
+            if old_value is None:
+                dw = DataWrite(table_name=table, data=data, is_update=False)
+                self.storage_manager.write_block(dw)
+            
+            # UPDATE
+            elif old_value is not None and data is not None:
+                dw = DataWrite(table_name=table, data=data, is_update=True, conditions=conditions)
+                self.storage_manager.write_block(dw)
+            
+            # DELETE
+            elif old_value is not None and data is None:
+                dd = DataDeletion(table_name=table, conditions=conditions)
+                self.storage_manager.delete_block(dd)
+        except Exception:
+            pass
 
     def recover(self, criteria: RecoverCriteria) -> List[str]:
         # Backward recovery berdasarkan criteria.
