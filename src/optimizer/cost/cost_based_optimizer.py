@@ -3,6 +3,7 @@ from src.core.models import ParsedQuery
 from src.core.models.query import QueryTree
 from src.core.optimizer import IQueryOptimizer
 from src.core.models.storage import Statistic
+from src.core import IStorageManager
 from .parser import QueryParser
 from .cost.cost_model import CostModel
 from .cost.cardinality_estimator import CardinalityEstimator
@@ -20,14 +21,14 @@ from .rules import (
 
 class CostBasedOptimizer(IQueryOptimizer):
     
-    def __init__(self, statistics: dict, max_iterations: int = 10):
-        self.statistics = statistics
+    def __init__(self, storage_manager: IStorageManager, max_iterations: int = 10):
+        self.storage_manager = storage_manager
         self.max_iterations = max_iterations
         self.parser = QueryParser()
         
         # Initialize cost model dan components
-        self.cost_model = CostModel(statistics)
-        self.cardinality_estimator = CardinalityEstimator(statistics)
+        self.cost_model = CostModel(storage_manager)
+        self.cardinality_estimator = CardinalityEstimator(storage_manager)
         self.rule_engine = CostBasedRuleEngine(self.cost_model)
         
         # Cost-based rules
@@ -111,9 +112,3 @@ class CostBasedOptimizer(IQueryOptimizer):
                     return optimized
         
         return tree
-    
-    def add_statistics(self, table_name: str, statistics: Statistic):
-        self.statistics[table_name] = statistics
-        # Update components yang bergantung pada statistics
-        self.cost_model.statistics = self.statistics
-        self.cardinality_estimator.statistics = self.statistics

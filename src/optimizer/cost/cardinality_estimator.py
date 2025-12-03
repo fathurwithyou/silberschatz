@@ -1,20 +1,22 @@
 from typing import Dict, List, Optional, Set
 from src.core.models.query import QueryTree
 from src.core.models.storage import Statistic, Condition, ComparisonOperator
+from src.core import IStorageManager
 import re
 import math
 
 
 class CardinalityEstimator:
     
-    def __init__(self, statistics: Dict[str, Statistic]):
-        self.statistics = statistics
+    def __init__(self, storage_manager: IStorageManager):
+        self.storage_manager = storage_manager
     
     def estimate_selection_cardinality(self, table_name: str, conditions: List[Condition]) -> float:
-        if table_name not in self.statistics:
-            return 1000  # Default estimate
+        try:
+            stats = self.storage_manager.get_stats(table_name)
+        except Exception:
+            return 1000  # Default estimate if stats not available
         
-        stats = self.statistics[table_name]
         base_cardinality = stats.n_r
         
         if not conditions:
