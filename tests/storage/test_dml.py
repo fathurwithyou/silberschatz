@@ -245,6 +245,24 @@ class TestReadOperations:
 
 class TestBufferReadOperations:
 
+    def test_read_with_no_matching_condition_buffer(self, employees_table):
+        retrieval = DataRetrieval(
+            table_name="employees",
+            columns=["*"],
+            conditions=[Condition(column="age", operator=ComparisonOperator.EQ, value=999)]
+        )
+        
+        result = employees_table.read_buffer(retrieval)
+        
+        assert result.rows_count == 0
+        assert result.data == []
+        
+        stats = employees_table.get_buffer_stats()
+        assert stats["buffer_enabled"] == True
+        assert stats["pages_in_buffer"] >= 1
+        assert stats["miss_count"] >= 0
+        assert stats["hit_count"] >= 0
+
     def test_buffer_fallback_to_disk(self, employees_table):
         retrieval = DataRetrieval(
             table_name="employees",
