@@ -4,6 +4,7 @@ from pathlib import Path
 import json , time
 from src.core.failure_recovery_manager import IFailureRecoveryManager
 from src.core.models.failure import LogRecord , LogRecordType , RecoverCriteria
+from src.core.models.storage import DataWrite , Condition , ComparisonOperator, DataDeletion, TableSchema, ColumnDefinition
 
 class FailureRecoveryManager(IFailureRecoveryManager) :
     """
@@ -15,6 +16,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         log_path: str | Path = "wal.jsonl",
         *,
         buffer_max: int = 256,
+        checkpoint_interval: int = 60,
         query_processor: Optional[object] = None,
         storage_manager: Optional[object] = None,
         meta_path: Optional[str | Path] = None,
@@ -30,8 +32,12 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
 
         # Konfigurasi runtime
         self._buffer_max = max(int(buffer_max), 1)
+        self.checkpoint_interval = checkpoint_interval
         self._buffer_size = 0  
         self.buffer: List[LogRecord] = []
+        self.active_transactions = set()
+        self.last_checkpoint_time = time.time()
+        self.lines_written_since_last_checkpoint = 0
         
         # Hook untuk integrasi dengan komponen lain
         self.query_processor = query_processor
@@ -56,93 +62,78 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
             for record in self.buffer:
                 log_entry = record.to_dict()
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        
+        self.lines_written_since_last_checkpoint += len(self.buffer)
         self.buffer.clear()
+        self._buffer_size = 0
+
 
     def write_log(self, info: LogRecord):
         if info:
+            # Update active transactions
+            if info.log_type == LogRecordType.START:
+                self.active_transactions.add(info.transaction_id)
+            elif info.log_type in (LogRecordType.COMMIT, LogRecordType.ABORT):
+                self.active_transactions.discard(info.transaction_id)
+
             self.buffer.append(info)
             self._buffer_size += 1
 
-        if (self._buffer_size >= self._buffer_max or (info and info.log_type in [LogRecordType.COMMIT, LogRecordType.ABORT])):
+        # Check auto-checkpoint conditions
+        should_checkpoint = False
+        if self._buffer_size >= self._buffer_max:
+             self._flush_buffer_to_disk()
+        elif (time.time() - self.last_checkpoint_time) >= self.checkpoint_interval:
+             should_checkpoint = True
+
+        if should_checkpoint:
+            self.save_checkpoint()
+        elif (info and info.log_type in [LogRecordType.COMMIT, LogRecordType.ABORT]):
             self._flush_buffer_to_disk()
-            self._buffer_size = 0
 
 
     def save_checkpoint(self):
-        """
-        Menyimpan checkpoint ke dalam log.
-        Proses:
-        1. Flush buffer WAL ke disk
-        2. Write dirty blocks dari buffer ke physical storage
-        3. Catat active transactions
-        4. Tulis checkpoint entry ke log
-        5. Update metadata
-        """
-        # Step 1: Flush WAL buffer agar semua log masuk ke disk
-        self._flush_buffer_to_disk()
-        
-        # Step 2: Baca metadata untuk mendapat posisi checkpoint terakhir
-        meta = self._read_meta()
-        last_checkpoint_line = meta.get("last_checkpoint_line", 0)
-        
-        # Step 3: Identifikasi active transactions dari log
-        active_transactions = set()
-        committed_transactions = set()
-        aborted_transactions = set()
-        
-        current_line = 0
-        if self.log_path.exists():
-            with self.log_path.open("r", encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    current_line = line_num
-                    if line_num <= last_checkpoint_line:
-                        continue
-                        
-                    if line.strip():
-                        try:
-                            entry = json.loads(line.strip())
-                            log_type = entry.get("log_type")
-                            txn_id = entry.get("transaction_id")
-                            
-                            if log_type == "START":
-                                active_transactions.add(txn_id)
-                            elif log_type == "COMMIT":
-                                committed_transactions.add(txn_id)
-                                active_transactions.discard(txn_id)
-                            elif log_type == "ABORT":
-                                aborted_transactions.add(txn_id)
-                                active_transactions.discard(txn_id)
-                        except json.JSONDecodeError:
-                            continue
-        
-        # Step 4: Flush dirty blocks dari buffer ke physical storage
-        # Ini adalah tahap penting - menulis perubahan in-memory ke disk
-        if self.storage_manager and hasattr(self.storage_manager, 'flush_buffer'):
-            # Storage manager harus memiliki method untuk flush buffer-nya
-            self.storage_manager.flush_buffer()
-        
-        # Step 5: Buat dan tulis checkpoint log entry
-        checkpoint_record = LogRecord(
-            log_type=LogRecordType.CHECKPOINT,
-            transaction_id=-1,
-            item_name=None,
-            old_value=None,
-            new_value=None,
-            active_transactions=list(active_transactions)
-        )
-        
-        with self.log_path.open("a", encoding="utf-8") as f:
-            checkpoint_entry = checkpoint_record.to_dict()
-            f.write(json.dumps(checkpoint_entry, ensure_ascii=False) + "\n")
-            current_line += 1
-        
-        # Step 6: Update metadata dengan posisi checkpoint baru
-        meta["last_checkpoint_line"] = current_line
-        meta["last_checkpoint_time"] = time.time()
-        meta["active_transactions_at_checkpoint"] = list(active_transactions)
-        self._write_meta(meta)
-        
-        self._buffer_size = 0
+            """
+            Menyimpan checkpoint ke dalam log.
+            Flush buffer WAL dan buffer storage manager ke disk.
+            """
+            # Step 1: Flush WAL buffer to disk
+            self._flush_buffer_to_disk()
+            
+            # Step 2: Flush storage manager buffer to disk
+            if self.storage_manager and hasattr(self.storage_manager, 'flush_buffer'):
+                self.storage_manager.flush_buffer()
+            
+            # Step 3: Read metadata
+            meta = self._read_meta()
+            last_checkpoint_line = meta.get("last_checkpoint_line", 0)
+            
+            # Step 4: Create and write checkpoint log entry
+            checkpoint_record = LogRecord(
+                log_type=LogRecordType.CHECKPOINT,
+                transaction_id=-1,
+                item_name=None,
+                old_value=None,
+                new_value=None,
+                active_transactions=list(self.active_transactions)
+            )
+            
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(checkpoint_record.to_dict(), ensure_ascii=False) + "\n")
+            
+            # Update counters
+            self.lines_written_since_last_checkpoint += 1
+            current_line = last_checkpoint_line + self.lines_written_since_last_checkpoint
+            
+            # Step 5: Update metadata
+            meta["last_checkpoint_line"] = current_line
+            meta["last_checkpoint_time"] = time.time()
+            meta["active_transactions_at_checkpoint"] = list(self.active_transactions)
+            self._write_meta(meta)
+            
+            # Reset counter for next checkpoint
+            self.lines_written_since_last_checkpoint = 0
+            self.last_checkpoint_time = time.time()
 
     def recover(self, criteria: RecoverCriteria) -> List[str]:
         # Backward recovery berdasarkan criteria.
@@ -218,9 +209,7 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
 
     def _undo_change(self, entry: Dict[str, Any], active_txns_at_checkpoint: set = None) -> str:
         # Undo satu perubahan dari log entry.
-        # Untuk sekarang, hanya return description action yang akan dilakukan.
-        # Nanti bisa diintegrasikan dengan query processor untuk eksekusi nyata.
-        
+        # Kalau storage_manager ada, maka undo ke storage, kalau tidak hanya return description action
         txn_id = entry.get("transaction_id", -1)
         
         # Cek apakah transaksi ini sudah committed di checkpoint terakhir
@@ -230,10 +219,94 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
         item_name = entry.get("item_name", "unknown")
         old_value = entry.get("old_value")
         new_value = entry.get("new_value")
+
+        # 1) CREATE TABLE, DROP TABLE
+        if isinstance(new_value, dict) and "operation" in new_value:
+            operation = new_value.get("operation")
+            table_name = new_value.get("table", "unknown")
+            
+            if operation == "CREATE_TABLE":
+                # Undo CREATE TABLE = DROP TABLE
+                if self.storage_manager and hasattr(self.storage_manager, "drop_table"):
+                    try:
+                        self.storage_manager.drop_table(table_name)
+                        return f"DROPPED TABLE {table_name} (undo CREATE, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED DROP TABLE {table_name} (undo CREATE, txn: {txn_id}): {e}"
+                return f"DROP TABLE {table_name} (undo CREATE, txn: {txn_id})"
+            
+            elif operation == "DROP_TABLE":
+                # Undo DROP TABLE = CREATE TABLE dengan schema lama
+                schema_obj = old_value.get("schema") if isinstance(old_value, dict) else None
+                if self.storage_manager and hasattr(self.storage_manager, "create_table") and schema_obj:
+                    try:
+                        self.storage_manager.create_table(schema_obj)
+                        return f"CREATED TABLE {table_name} (undo DROP, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED CREATE TABLE {table_name} (undo DROP, txn: {txn_id}): {e}"
+                return f"CREATE TABLE {table_name} WITH SCHEMA {schema_obj} (undo DROP, txn: {txn_id})"
+        
+        # UPDATE, INSERT, DELETE
+        payload = new_value if isinstance(new_value, dict) and "table" in new_value else None
+        table = None
+        
+        if payload:
+            table = payload.get("table")
+        elif isinstance(item_name, str) and "." in item_name:
+            # Parse table dari item_name kayak "Employee.salary"
+            table = item_name.split(".", 1)[0]
         
         if old_value is not None:
-            # Return description dari undo action
+            # UPDATE atau DELETE
+            if payload and table and self.storage_manager:
+                # Reconstruct conditions from payload
+                conditions = []
+                for c in payload.get("conditions", []):
+                    try:
+                        op_val = c.get("operator")
+                        if op_val in [e.value for e in ComparisonOperator]:
+                            op_enum = ComparisonOperator(op_val)
+                        elif op_val in [e.name for e in ComparisonOperator]:
+                            op_enum = ComparisonOperator[op_val]
+                        else:
+                            continue
+                        conditions.append(Condition(column=c.get("column"), operator=op_enum, value=c.get("value")))
+                    except Exception:
+                        continue
+                
+                # Data yg direstore = old_value
+                data_to_write = old_value if isinstance(old_value, dict) else {}
+                try:
+                    dw = DataWrite(table_name=table, data=data_to_write, is_update=True, conditions=conditions or None)
+                    affected = self.storage_manager.write_block(dw)
+                    return f"RESTORED {table} affected={affected} (txn: {txn_id})"
+                except Exception as e:
+                    return f"FAILED RESTORE {table} (txn: {txn_id}): {e}"
+            
+            # Fallback: return description
             return f"RESTORE {item_name} FROM '{new_value}' TO '{old_value}' (txn: {txn_id})"
+        
         else:
-            # Jika old_value adalah None, berarti ini INSERT operation
+            # old_value None ->INSERT, undo nya DELETE
+            if payload and table and self.storage_manager:
+                actual = payload.get("actual_value")
+                conditions = []
+                
+                if isinstance(actual, dict):
+                    for col, val in actual.items():
+                        try:
+                            conditions.append(Condition(column=col, operator=ComparisonOperator.EQ, value=val))
+                        except Exception:
+                            continue
+                
+                if conditions:
+                    try:
+                        from src.core.models.storage import DataDeletion
+                        data_del = DataDeletion(table_name=table, conditions=conditions)
+                        affected = self.storage_manager.delete_block(data_del)
+                        return f"DELETED {table} affected={affected} (undo INSERT, txn: {txn_id})"
+                    except Exception as e:
+                        return f"FAILED DELETE {table} (undo INSERT, txn: {txn_id}): {e}"
+            
+            # Fallback: return description
             return f"DELETE {item_name} (undo INSERT, txn: {txn_id})"
