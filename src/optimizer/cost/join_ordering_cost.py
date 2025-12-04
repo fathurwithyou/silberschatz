@@ -74,7 +74,13 @@ class JoinOrderingOptimizer:
             return []
         
         # Start dengan table terkecil
-        table_stats = {name: self.cost_model.statistics.get(name) for name in tables}
+        table_stats = {}
+        for name in tables:
+            try:
+                table_stats[name] = self.cost_model.storage_manager.get_stats(name)
+            except:
+                table_stats[name] = None
+
         current_set = [min(tables, key=lambda t: table_stats[t].n_r if table_stats[t] else float('inf'))]
         remaining = [t for t in tables if t not in current_set]
         

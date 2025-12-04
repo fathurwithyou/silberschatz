@@ -2,6 +2,10 @@ import os
 import sys
 import ast
 import pytest
+from src.core import IStorageManager
+from src.core.models.storage import Statistic, TableSchema, DataRetrieval, DataWrite, DataDeletion, ColumnDefinition, DataType, Condition, ComparisonOperator
+from src.core.models.result import Rows
+from src.core.models.query import QueryTree # Use the actual QueryTree class
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
@@ -39,53 +43,56 @@ def import_cardinality_estimator_directly():
         'Set': set,
         'math': __import__('math'),
         're': __import__('re'),
+        'IStorageManager': IStorageManager,
+        # Now use the actual imported classes for the namespace
+        'Statistic': Statistic,
+        'Condition': Condition,
+        'ComparisonOperator': ComparisonOperator,
+        'QueryTree': QueryTree,
+        'DataType': DataType,
     }
     
-    class QueryTree:
-        def __init__(self, type: str, value: str, children: list = None, parent=None):
-            self.type = type
-            self.value = value
-            self.children = children or []
-            self.parent = parent
-
-    class Statistic:
-        def __init__(self, table_name: str, n_r: int, b_r: int, l_r: int, f_r: int, V: dict):
-            self.table_name = table_name
-            self.n_r = n_r
-            self.b_r = b_r
-            self.l_r = l_r
-            self.f_r = f_r
-            self.V = V
-
-    class Condition:
-        def __init__(self, column: str, operator: str, value):
-            self.column = column
-            self.operator = operator
-            self.value = value
-
-    class ComparisonOperator:
-        EQ = "="
-        NE = "!="
-        LT = "<"
-        LE = "<="
-        GT = ">"
-        GE = ">="
-
-    namespace['QueryTree'] = QueryTree
-    namespace['Statistic'] = Statistic
-    namespace['Condition'] = Condition
-    namespace['ComparisonOperator'] = ComparisonOperator
-    
-    modified_content = content
+    # Remove imports that are now handled by namespace or are directly imported
     import_lines_to_remove = [
-        'from src.core.models.query import QueryTree',
-        'from src.core.models.storage import Statistic, Condition, ComparisonOperator'
+        'from src.core.models.query import QueryTree', # This line should be kept in the actual file, but its a local def
+        'from src.core.models.storage import Statistic, Condition, ComparisonOperator', # Also this should be kept
+        'from src.core import IStorageManager', # This too
     ]
     
-    for import_line in import_lines_to_remove:
-        modified_content = modified_content.replace(import_line, f'# {import_line}  # REMOVED FOR TESTING')
+    # Remove local class definitions for testing
+    local_class_definitions_to_remove = [
+        'class QueryTree:',
+        'class Statistic:',
+        'class Condition:',
+        'class ComparisonOperator:'
+    ]
     
-    print("✓ Removed problematic imports")
+    modified_content = content
+    # For robust removal, find exact class definitions and replace with pass
+    for class_keyword in local_class_definitions_to_remove:
+        idx = 0
+        while True:
+            idx = modified_content.find(class_keyword, idx) 
+            if idx == -1:
+                break
+            
+            # Find the end of the class block
+            end_of_class = modified_content.find('\nclass ', idx + 1) # Look for next class or end of file
+            if end_of_class == -1:
+                end_of_class = len(modified_content)
+            
+            # Replace the class body with 'pass'
+            modified_content = modified_content[:idx] + class_keyword + modified_content[idx:].split('\n', 1)[0] + '\n    pass' + modified_content[end_of_class:]
+            idx += len(class_keyword) # Move past this class
+    
+    # Comment out old import lines for the actual module being imported
+    modified_content = content # Reset content to avoid double-modifying
+    for import_line in import_lines_to_remove:
+        # Check if the line exists before attempting to replace, to avoid unintended changes
+        if import_line.strip() in modified_content: # Use strip for a robust check
+            modified_content = modified_content.replace(import_line, f'# {import_line}  # REMOVED FOR TESTING')
+
+    print("✓ Removed problematic imports and local class definitions for testing")
     
     try:
         exec(modified_content, namespace)
@@ -111,39 +118,74 @@ except Exception as e:
 
 @pytest.fixture
 def statistics():
+    from src.core.models.storage import Statistic # Import actual Statistic
+    from src.core.models.storage import ComparisonOperator # Import actual ComparisonOperator
+
     return {
-        'Employee': type('Statistic', (), {
-            'table_name': 'Employee',
-            'n_r': 1000,
-            'b_r': 100,
-            'l_r': 100, 
-            'f_r': 10,
-            'V': {
+        'Employee': Statistic(
+            table_name='Employee',
+            n_r=1000,
+            b_r=100,
+            l_r=100,
+            f_r=10,
+            V={
                 'id': 1000,
                 'salary': 50,
                 'dept_id': 10,
                 'name': 800
-            }
-        })(),
-        'Department': type('Statistic', (), {
-            'table_name': 'Department',
-            'n_r': 100,
-            'b_r': 10,
-            'l_r': 200,
-            'f_r': 5,
-            'V': {
+            },
+            min_values={'salary': 10000},
+            max_values={'salary': 100000},
+            null_counts={}
+        ),
+        'Department': Statistic(
+            table_name='Department',
+            n_r=100,
+            b_r=10,
+            l_r=200,
+            f_r=5,
+            V={
                 'id': 100,
                 'name': 100
-            }
-        })()
+            },
+            min_values={},
+            max_values={},
+            null_counts={}
+        )
     }
 
+@pytest.fixture
+def mock_storage_manager(statistics):
+    class MockStorageManager(IStorageManager):
+        def get_stats(self, table_name: str) -> Statistic:
+            if table_name in statistics:
+                return statistics[table_name]
+            # Return a default Statistic object if not found
+            return Statistic(
+                table_name=table_name,
+                n_r=1000, # Default values
+                b_r=100, l_r=100, f_r=10, V={},
+                min_values={}, max_values={}, null_counts={}
+            )
+
+        def read_block(self, data_retrieval: DataRetrieval) -> Rows: raise NotImplementedError
+        def write_block(self, data_write: DataWrite) -> int: raise NotImplementedError
+        def delete_block(self, data_deletion: DataDeletion) -> int: raise NotImplementedError
+        def set_index(self, table: str, column: str, index_type: str) -> None: raise NotImplementedError
+        def drop_index(self, table: str, column: str) -> None: raise NotImplementedError
+        def has_index(self, table: str, column: str) -> bool: return False
+        def create_table(self, schema: TableSchema) -> None: raise NotImplementedError
+        def drop_table(self, table_name: str) -> None: raise NotImplementedError
+        def get_table_schema(self, table_name: str) -> Optional[TableSchema]: return None
+        def list_tables(self) -> List[str]: return []
+
+    return MockStorageManager()
 
 @pytest.fixture
-def estimator(statistics):
+def estimator(mock_storage_manager):
     if not ACTUAL_IMPORT_SUCCESS or ActualCardinalityEstimator is None:
         pytest.skip("Could not import ACTUAL CardinalityEstimator implementation")
-    return ActualCardinalityEstimator(statistics)
+    return ActualCardinalityEstimator(mock_storage_manager)
 
 
 def test_actual_selection_cardinality_no_conditions(estimator):
@@ -152,15 +194,16 @@ def test_actual_selection_cardinality_no_conditions(estimator):
 
 
 def test_actual_selection_cardinality_unknown_table(estimator):
-    condition = type('Condition', (), {'column': 'salary', 'operator': '=', 'value': 50000})()
+    # If the table is unknown and conditions are provided, default_selectivity will be applied
+    condition = Condition(column='salary', operator=ComparisonOperator.EQ, value=50000)
     cardinality = estimator.estimate_selection_cardinality('UnknownTable', [condition])
     
-    # default estimate
-    assert cardinality == 1000
+    # Default n_r is 1000, default_selectivity for EQ is 0.1
+    assert cardinality == pytest.approx(1000 * 0.1, rel=1e-2)
 
 
 def test_actual_selection_cardinality_equality_condition(estimator):
-    condition = type('Condition', (), {'column': 'salary', 'operator': '=', 'value': 50000})()
+    condition = Condition(column='salary', operator=ComparisonOperator.EQ, value=50000)
     cardinality = estimator.estimate_selection_cardinality('Employee', [condition])
     
     expected_cardinality = 1000 * (1.0 / 50)
@@ -168,7 +211,7 @@ def test_actual_selection_cardinality_equality_condition(estimator):
 
 
 def test_actual_selection_cardinality_inequality_condition(estimator):
-    condition = type('Condition', (), {'column': 'salary', 'operator': '!=', 'value': 50000})()
+    condition = Condition(column='salary', operator=ComparisonOperator.NE, value=50000)
     cardinality = estimator.estimate_selection_cardinality('Employee', [condition])
     
     expected_cardinality = 1000 * (1.0 - (1.0 / 50))
@@ -176,7 +219,7 @@ def test_actual_selection_cardinality_inequality_condition(estimator):
 
 
 def test_actual_selection_cardinality_range_condition(estimator):
-    condition = type('Condition', (), {'column': 'salary', 'operator': '>', 'value': 50000})()
+    condition = Condition(column='salary', operator=ComparisonOperator.GT, value=50000)
     cardinality = estimator.estimate_selection_cardinality('Employee', [condition])
     
     expected_cardinality = 1000 * 0.33
@@ -184,7 +227,7 @@ def test_actual_selection_cardinality_range_condition(estimator):
 
 
 def test_actual_selection_cardinality_unknown_column(estimator):
-    condition = type('Condition', (), {'column': 'unknown_column', 'operator': '=', 'value': 50000})()
+    condition = Condition(column='unknown_column', operator=ComparisonOperator.EQ, value=50000)
     cardinality = estimator.estimate_selection_cardinality('Employee', [condition])
     
     expected_cardinality = 1000 * 0.1
@@ -193,8 +236,8 @@ def test_actual_selection_cardinality_unknown_column(estimator):
 
 def test_actual_selection_cardinality_multiple_conditions(estimator):
     conditions = [
-        type('Condition', (), {'column': 'salary', 'operator': '>', 'value': 50000})(),
-        type('Condition', (), {'column': 'dept_id', 'operator': '=', 'value': 5})()
+        Condition(column='salary', operator=ComparisonOperator.GT, value=50000),
+        Condition(column='dept_id', operator=ComparisonOperator.EQ, value=5)
     ]
     cardinality = estimator.estimate_selection_cardinality('Employee', conditions)
     
@@ -276,24 +319,24 @@ def test_actual_extract_join_columns_method(estimator):
 def test_actual_estimate_condition_selectivity_method(estimator, statistics):
     stats = statistics['Employee']
     
-    eq_condition = type('Condition', (), {'column': 'salary', 'operator': '=', 'value': 50000})()
+    eq_condition = Condition(column='salary', operator=ComparisonOperator.EQ, value=50000)
     selectivity = estimator.estimate_condition_selectivity(stats, eq_condition)
     expected_selectivity = 1.0 / 50
     assert selectivity == pytest.approx(expected_selectivity, rel=1e-4)
     
-    range_condition = type('Condition', (), {'column': 'salary', 'operator': '>', 'value': 50000})()
+    range_condition = Condition(column='salary', operator=ComparisonOperator.GT, value=50000)
     selectivity = estimator.estimate_condition_selectivity(stats, range_condition)
     assert selectivity == pytest.approx(0.33, rel=1e-2)
 
 
 def test_actual_default_selectivity_method(estimator):
     test_cases = [
-        ('=', 0.1),
-        ('!=', 0.9),
-        ('>', 0.33),
-        ('<', 0.33),
-        ('>=', 0.33),
-        ('<=', 0.33)
+        (ComparisonOperator.EQ, 0.1),
+        (ComparisonOperator.NE, 0.9),
+        (ComparisonOperator.GT, 0.33),
+        (ComparisonOperator.LT, 0.33),
+        (ComparisonOperator.GE, 0.33),
+        (ComparisonOperator.LE, 0.33)
     ]
     
     for operator, expected in test_cases:
