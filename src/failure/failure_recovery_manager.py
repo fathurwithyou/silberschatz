@@ -182,25 +182,31 @@ class FailureRecoveryManager(IFailureRecoveryManager) :
                     break    # Berhenti jika criteria tidak terpenuhi
                 
             # Lakukan undo operation berdasarkan log_type
-            log_type = entry.get("log_type")
+            log_type_str = entry.get("log_type")
             
-            if log_type == "CHANGE":
+            # Convert string to enum
+            try:
+                log_type = LogRecordType[log_type_str]
+            except (KeyError, TypeError):
+                continue
+            
+            if log_type == LogRecordType.CHANGE:
                 # Undo perubahan data
                 undo_action = self._undo_change(entry, active_txns_at_checkpoint)
                 if undo_action:
                     recovery_actions.append(undo_action)
                     
-            elif log_type == "COMMIT":
+            elif log_type == LogRecordType.COMMIT:
                 # Skip committed transactions (sudah persisten, tidak perlu di-undo)
                 action = f"SKIP COMMIT for transaction {entry_txn_id}"
                 recovery_actions.append(action)
                 
-            elif log_type == "ABORT":
+            elif log_type == LogRecordType.ABORT:
                 # Transaction sudah di-abort sebelumnya, skip
                 action = f"SKIP ABORT for transaction {entry_txn_id}"
                 recovery_actions.append(action)
                 
-            elif log_type == "BEGIN":
+            elif log_type == LogRecordType.START:
                 # Catat bahwa transaction ini di-rollback
                 action = f"ROLLBACK transaction {entry_txn_id}"
                 recovery_actions.append(action)
