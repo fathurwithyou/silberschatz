@@ -360,7 +360,14 @@ class StorageManager(IStorageManager):
         if self.buffer_pool is None:
             return
         
-        self.buffer_pool.clear()
+        if table_name is not None:
+            page_id = f"table:{table_name}"
+            if page_id in self.buffer_pool.frames:
+                self.buffer_pool.flush_page(page_id, lambda data: self._write_page_to_disk(page_id, data))
+                del self.buffer_pool.frames[page_id]
+        else:
+            self.buffer_pool.flush_all(lambda page_id: lambda data: self._write_page_to_disk(page_id, data))
+            self.buffer_pool.clear()
     
     def get_buffer_stats(self) -> Dict[str, Any]:
         if self.buffer_pool is None:
@@ -461,3 +468,10 @@ class StorageManager(IStorageManager):
 
     def list_tables(self) -> List[str]:
         return self.ddl_manager.list_schema_files()
+    
+    def update_table_schema(self, schema: TableSchema) -> None:
+        if not self.ddl_manager.schema_exists(schema.table_name):
+            raise ValueError(f"Table '{schema.table_name}' does not exist")
+
+        self.ddl_manager.validate_schema(schema)
+        self.ddl_manager.save_schema(schema)
