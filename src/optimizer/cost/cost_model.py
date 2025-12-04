@@ -1,6 +1,7 @@
 from typing import Dict, List
 from src.core.models.query import QueryTree
 from src.core.models.storage import Statistic
+from src.core import IStorageManager
 from .cardinality_estimator import CardinalityEstimator
 from typing import Optional
 import math
@@ -8,11 +9,11 @@ import math
 
 class CostModel:
     
-    def __init__(self, statistics: Dict[str, Statistic], 
+    def __init__(self, storage_manager: IStorageManager, 
                  block_size: int = 4096,
                  memory_size: int = 1000):
-        self.statistics = statistics
-        self.cardinality_estimator = CardinalityEstimator(statistics)
+        self.storage_manager = storage_manager
+        self.cardinality_estimator = CardinalityEstimator(storage_manager)
         self.block_size = block_size
         self.memory_size = memory_size
         
@@ -45,13 +46,13 @@ class CostModel:
     
     def compute_table_scan_cost(self, node: QueryTree) -> float:
         table_name = self.extract_table_name(node.value)
-        if table_name not in self.statistics:
+        try:
+            stats = self.storage_manager.get_stats(table_name)
+            # Sequential read seluruh table
+            return stats.b_r * self.SEQUENTIAL_READ_COST
+        except Exception:
             return 1000  # Default cost
         
-        stats = self.statistics[table_name]
-        # Sequential read seluruh table
-        return stats.b_r * self.SEQUENTIAL_READ_COST
-    
     def compute_selection_cost(self, node: QueryTree) -> float:
         if not node.children:
             return 0
@@ -107,7 +108,10 @@ class CostModel:
         hash_cost = self.hash_join_cost(left_card, right_card)
         
         # Coba merge join cost (jika kondisi equijoin dan sorted)
-        merge_cost = self.merge_join_cost(left_card, right_card, condition, left_stats, right_stats)
+        if left_stats and right_stats:
+            merge_cost = self.merge_join_cost(left_card, right_card, condition, left_stats, right_stats)
+        else:
+            merge_cost = float('inf')
         
         return min(nl_cost, hash_cost, merge_cost)
     
@@ -186,9 +190,11 @@ class CostModel:
         # Ini adalah implementasi sederhana, bisa diperluas
         if node.type == "table":
             table_name = self.extract_table_name(node.value)
-            if table_name in self.statistics:
-                return self.statistics[table_name].n_r
-            return 1000
+            try:
+                stats = self.storage_manager.get_stats(table_name)
+                return stats.n_r
+            except Exception:
+                return 1000
         
         # Untuk node lainnya, estimate berdasarkan children
         if node.children:
@@ -212,5 +218,8 @@ class CostModel:
     def get_node_statistics(self, node: QueryTree) -> Optional[Statistic]:
         if node.type == "table":
             table_name = self.extract_table_name(node.value)
-            return self.statistics.get(table_name)
+            try:
+                return self.storage_manager.get_stats(table_name)
+            except Exception:
+                return None
         return None
