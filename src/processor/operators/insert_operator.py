@@ -4,6 +4,7 @@ from src.core.models import (
     DataWrite, TableSchema, DataType, Rows, LogRecord, LogRecordType, Action
 )
 from ..exceptions import AbortError
+from ..utils.utils import check_referential_integrity
 
 class InsertOperator:
     def __init__(self, ccm: IConcurrencyControlManager, storage_manager: IStorageManager, frm: IFailureRecoveryManager):
@@ -153,9 +154,19 @@ class InsertOperator:
         for i, col in enumerate(schema.columns):
             raw_val = values[i]
             if raw_val is None:
+                if not col.nullable:
+                    raise ValueError(f"Column '{col.name}' cannot be null")
                 new_row[col.name] = None
                 continue
+            
             parsed = self._parse_value(raw_val.strip(), col.data_type)
+            if parsed is None and not col.nullable:
+                raise ValueError(f"Column '{col.name}' cannot be null")
+            
+            if col.foreign_key is not None:
+                if not check_referential_integrity(parsed, col, self.storage_manager):
+                    raise ValueError(f"Referential integrity violation: value '{parsed}' for column '{col.name}' does not exist in referenced table '{col.foreign_key.referenced_table}'")
+            
             new_row[col.name] = parsed
 
         return new_row
