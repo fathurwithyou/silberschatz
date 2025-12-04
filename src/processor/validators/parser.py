@@ -286,7 +286,6 @@ class SQLParser:
         """
         <create_statement> ::= CREATE TABLE IDENTIFIER '(' <column_definition_list> ')'
         <column_definition_list> ::= <column_definition> { ',' <column_definition> }
-        <column_definition> ::= IDENTIFIER IDENTIFIER
         """
         self._expect(TokenType.CREATE)
         self._expect(TokenType.TABLE)
@@ -294,18 +293,109 @@ class SQLParser:
         
         self._expect(TokenType.LEFT_PAREN)
         
-        self._expect(TokenType.IDENTIFIER)
-        self._expect(TokenType.IDENTIFIER)
+        self._parse_column_definition()
         
         while self._check(TokenType.COMMA):
             self._advance()
-            self._expect(TokenType.IDENTIFIER)
-            self._expect(TokenType.IDENTIFIER)
+            self._parse_column_definition()
         
         self._expect(TokenType.RIGHT_PAREN)
 
         if self._check(TokenType.SEMICOLON):
             self._advance()
+    
+    def _parse_column_definition(self) -> None:
+        """
+        <column_definition> ::= IDENTIFIER <data_type> [<column_constraints>]
+        """
+        self._expect(TokenType.IDENTIFIER)
+        self._parse_data_type()
+        self._parse_column_constraints()
+    
+    def _parse_data_type(self) -> None:
+        """
+        <data_type> ::= INTEGER | VARCHAR '(' NUMBER ')' | CHAR '(' NUMBER ')' | FLOAT | INT
+        """
+        if (self._check(TokenType.INTEGER) or self._check(TokenType.INT) or 
+            self._check(TokenType.FLOAT)):
+            self._advance()
+        elif (self._check(TokenType.VARCHAR) or self._check(TokenType.CHAR)):
+            self._advance()
+            self._expect(TokenType.LEFT_PAREN)
+            self._expect(TokenType.NUMBER_LITERAL)
+            self._expect(TokenType.RIGHT_PAREN)
+        
+    
+    def _parse_column_constraints(self) -> None:
+        """
+        <column_constraints> ::= {<constraint>}
+        <constraint> ::= PRIMARY KEY | NOT NULL | NULL | REFERENCES <table_ref> [<fk_actions>]
+        <table_ref> ::= IDENTIFIER '(' IDENTIFIER ')'
+        """
+        while (self._check(TokenType.PRIMARY) or self._check(TokenType.NOT) or 
+               self._check(TokenType.NULL) or self._check(TokenType.REFERENCES)):
+            
+            if self._check(TokenType.PRIMARY):
+                # PRIMARY KEY constraint
+                self._advance()
+                self._expect(TokenType.KEY)
+            elif self._check(TokenType.NOT):
+                # NOT NULL constraint
+                self._advance()
+                self._expect(TokenType.NULL)
+            elif self._check(TokenType.NULL):
+                # NULL constraint
+                self._advance()
+            elif self._check(TokenType.REFERENCES):
+                # REFERENCES constraint (foreign key)
+                self._advance()
+                self._expect(TokenType.IDENTIFIER)
+                self._expect(TokenType.LEFT_PAREN)
+                self._expect(TokenType.IDENTIFIER)
+                self._expect(TokenType.RIGHT_PAREN)
+                
+                # Parse optional foreign key actions
+                self._parse_foreign_key_actions()
+
+    def _parse_foreign_key_actions(self) -> None:
+        """
+        <fk_actions> ::= [ON DELETE <action>] [ON UPDATE <action>]
+        <action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
+        """
+        # ON DELETE action
+        if self._check(TokenType.ON):
+            self._advance()
+            if self._check(TokenType.DELETE):
+                self._advance()
+                self._parse_fk_action()
+            elif self._check(TokenType.UPDATE):
+                # Need to backtrack and let the UPDATE clause handle this
+                self.current -= 1  # Go back one token
+                self.current_token = self.tokens[self.current] if self.current < len(self.tokens) else None
+        
+        # ON UPDATE action
+        if self._check(TokenType.ON):
+            self._advance()
+            if self._check(TokenType.UPDATE):
+                self._advance()
+                self._parse_fk_action()
+
+    def _parse_fk_action(self) -> None:
+        """
+        <action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
+        """
+        if self._check(TokenType.CASCADE):
+            self._advance()
+        elif self._check(TokenType.RESTRICT):
+            self._advance()
+        elif self._check(TokenType.SET):
+            self._advance()
+            self._expect(TokenType.NULL)
+        elif self._check(TokenType.NO):
+            self._advance()
+            self._expect(TokenType.ACTION)
+        else:
+            raise ParseError(f"Expected foreign key action (CASCADE, RESTRICT, SET NULL, NO ACTION)", self.current_token)
 
     
     def _parse_drop_statement(self) -> None:

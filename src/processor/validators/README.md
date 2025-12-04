@@ -66,7 +66,19 @@
 
 <column_definition_list> ::= <column_definition> { ',' <column_definition> }
 
-<column_definition> ::= IDENTIFIER IDENTIFIER
+<column_definition> ::= IDENTIFIER <data_type> [<column_constraints>]
+
+<data_type> ::= INTEGER | VARCHAR '(' NUMBER ')' | CHAR '(' NUMBER ')' | FLOAT | INT
+
+<column_constraints> ::= {<constraint>}
+
+<constraint> ::= PRIMARY KEY | NOT NULL | NULL | REFERENCES <table_ref> [<fk_actions>]
+
+<table_ref> ::= IDENTIFIER '(' IDENTIFIER ')'
+
+<fk_actions> ::= [ON DELETE <action>] [ON UPDATE <action>]
+
+<action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
 
 <drop_statement> ::= DROP TABLE IDENTIFIER
 ```

@@ -40,6 +40,18 @@ class TokenType(Enum):
     NULL = "NULL"
     ASC = "ASC"
     DESC = "DESC"
+    PRIMARY = "PRIMARY"
+    KEY = "KEY"
+    REFERENCES = "REFERENCES"
+    INTEGER = "INTEGER"
+    VARCHAR = "VARCHAR"
+    CHAR = "CHAR"
+    FLOAT = "FLOAT"
+    INT = "INT"
+    
+    # Foreign key actions
+    NO = "NO"
+    ACTION = "ACTION"
     
     # Identifiers and literals
     IDENTIFIER = "IDENTIFIER"
@@ -116,6 +128,16 @@ class SQLLexer:
         'ASC': TokenType.ASC,
         'DESC': TokenType.DESC,
         'LIKE': TokenType.LIKE,
+        'PRIMARY': TokenType.PRIMARY,
+        'KEY': TokenType.KEY,
+        'REFERENCES': TokenType.REFERENCES,
+        'INTEGER': TokenType.INTEGER,
+        'VARCHAR': TokenType.VARCHAR,
+        'CHAR': TokenType.CHAR,
+        'FLOAT': TokenType.FLOAT,
+        'INT': TokenType.INT,
+        'NO': TokenType.NO,
+        'ACTION': TokenType.ACTION,
     }
     
     # Operator patterns

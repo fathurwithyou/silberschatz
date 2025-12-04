@@ -36,7 +36,7 @@ class DatabaseClient:
         try:
             send_string(self.socket, query.strip())
             response = recv_string(self.socket)
-            return response if response else "No response from server."
+            return response
         except Exception as e:
             raise ConnectionError(f"Communication error: {e}")
     

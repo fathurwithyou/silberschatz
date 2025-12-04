@@ -138,9 +138,6 @@ class QueryProcessor(IQueryProcessor):
                 node.value,
                 tx_id
             )   
-           
-        elif node.type == QueryNodeType.CREATE_TABLE:
-            return self.ddl_handler._handle_create_table(ParsedQuery(query="", tree=node))
 
         raise ValueError(f"Unknown query type: {node.type}")
     
@@ -267,7 +264,7 @@ class QueryProcessor(IQueryProcessor):
             for column in schema.columns:
                 column_info = {
                     'Column': column.name,
-                    'Type': column.data_type.name.lower(),
+                    'Type': column.data_type.name.lower() + (f"({column.max_length})" if column.max_length else ""),
                     'Nullable': 'YES' if column.nullable else 'NO',
                 }
                 

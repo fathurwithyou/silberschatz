@@ -661,7 +661,7 @@ PRESETS: Dict[str, SeederPreset] = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed storage with deterministic data")
-    parser.add_argument("--data-dir", default="data_test")
+    parser.add_argument("--data-dir", default="data")
     parser.add_argument(
         "--preset",
         choices=sorted(PRESETS.keys()),
