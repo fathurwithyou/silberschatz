@@ -1,4 +1,6 @@
-from src.core.models import TableSchema, DataType, ColumnDefinition, DataRetrieval, Condition, ComparisonOperator
+from src.core.models import (TableSchema, DataType, 
+                             ColumnDefinition, DataRetrieval, 
+                             Condition, ComparisonOperator)
 from src.core import IStorageManager
 from typing import List, Dict, Any
 
@@ -79,6 +81,9 @@ def check_referential_integrity(value: Any, fk_column: ColumnDefinition, sm: ISt
     col_name = fk_column.name
     if fk_column.foreign_key is None:
         raise ValueError(f"Column '{col_name}' is not a foreign key")
+    
+    if value is None:
+        return True
     
     data_retrieval = DataRetrieval(
         table_name=fk_column.foreign_key.referenced_table,
