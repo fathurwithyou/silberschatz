@@ -23,7 +23,7 @@ class DatabaseServer:
         self.failure_recovery_manager = None
         self.query_optimizer = None
         
-    def initialize_components(self, data_dir="data_test"):
+    def initialize_components(self, data_dir="data"):
         """Initialize all database components."""
         self.storage_manager = StorageManager(data_dir)
         self.query_optimizer = QueryOptimizer(storage_manager=self.storage_manager)
@@ -200,8 +200,8 @@ def parse_arguments():
                        help='Server port (default: 12345)')
     
     parser.add_argument('-d', '--data-dir',
-                       default='data_test',
-                       help='Data directory (default: data_test)')
+                       default='data',
+                       help='Data directory (default: data)')
     
     parser.add_argument('-H', '--help', 
                        action='help',

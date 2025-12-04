@@ -137,8 +137,8 @@ class QueryProcessor(IQueryProcessor):
                 node.children[0].value,
                 node.value,
                 tx_id
-            )      
-        
+            )   
+
         raise ValueError(f"Unknown query type: {node.type}")
     
     def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:
@@ -264,7 +264,7 @@ class QueryProcessor(IQueryProcessor):
             for column in schema.columns:
                 column_info = {
                     'Column': column.name,
-                    'Type': column.data_type.name.lower(),
+                    'Type': column.data_type.name.lower() + (f"({column.max_length})" if column.max_length else ""),
                     'Nullable': 'YES' if column.nullable else 'NO',
                 }
                 
