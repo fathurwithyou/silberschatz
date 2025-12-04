@@ -19,7 +19,7 @@ from src.storage.buffer_pool import BufferPool
 
 class StorageManager(IStorageManager):
     
-    def __init__(self, data_directory: str = "data", use_buffer: bool = True, buffer_size: int = 100):
+    def __init__(self, data_directory: str = "data", use_buffer: bool = True, buffer_size: int = 200):
         self.data_directory = data_directory
         self.use_buffer = use_buffer
         
@@ -360,11 +360,7 @@ class StorageManager(IStorageManager):
         if self.buffer_pool is None:
             return
         
-        if table_name:
-            self.dml_manager.flush_table(table_name)
-        else:
-            self.buffer_pool.flush_all(lambda page_id: lambda data: self._write_page_to_disk(page_id, data))
-    
+        self.buffer_pool.clear()
     
     def get_buffer_stats(self) -> Dict[str, Any]:
         if self.buffer_pool is None:

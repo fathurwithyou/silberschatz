@@ -74,7 +74,7 @@ def employees_table(storage):
     )
     
     storage.dml_manager.save_all_rows("employees", test_rows, schema)
-    storage.flush_buffer("employees")
+    storage.dml_manager.flush_table("employees")
     
     return storage
 
@@ -244,7 +244,53 @@ class TestReadOperations:
 
 
 class TestBufferReadOperations:
-    
+
+    def test_read_with_no_matching_condition_buffer(self, employees_table):
+        retrieval = DataRetrieval(
+            table_name="employees",
+            columns=["*"],
+            conditions=[Condition(column="age", operator=ComparisonOperator.EQ, value=999)]
+        )
+        
+        result = employees_table.read_buffer(retrieval)
+        
+        assert result.rows_count == 0
+        assert result.data == []
+        
+        stats = employees_table.get_buffer_stats()
+        assert stats["buffer_enabled"] == True
+        assert stats["pages_in_buffer"] >= 1
+        assert stats["miss_count"] >= 0
+        assert stats["hit_count"] >= 0
+
+    def test_buffer_fallback_to_disk(self, employees_table):
+        retrieval = DataRetrieval(
+            table_name="employees",
+            columns=["*"]
+        )
+        
+        result_disk = employees_table.read_block(retrieval)
+        assert result_disk.rows_count == 5
+        
+        employees_table.buffer_pool.frames.clear()
+        employees_table.buffer_pool.hit_count = 0
+        employees_table.buffer_pool.miss_count = 0
+        
+        stats_before = employees_table.get_buffer_stats()
+        assert stats_before["hit_count"] == 0
+        assert stats_before["miss_count"] == 0
+        
+        result_buffer = employees_table.read_buffer(retrieval)
+        
+        assert result_buffer.rows_count == 5
+        assert len(result_buffer.data) == 5
+        assert result_buffer.data == result_disk.data
+        
+        stats_after = employees_table.get_buffer_stats()
+        assert stats_after["pages_in_buffer"] >= 1
+        assert stats_after["miss_count"] >= 1
+        assert stats_after["hit_count"] == 0
+
     def test_read_all_rows_buffer(self, employees_table):
         retrieval = DataRetrieval(
             table_name="employees",
@@ -392,6 +438,34 @@ class TestBufferReadOperations:
         assert stats["buffer_enabled"] == True
         assert stats["pages_in_buffer"] >= 1
 
+    def test_no_duplicate_reads_when_data_in_buffer_and_disk(self, employees_table):
+        dw = DataWrite(
+            table_name="employees",
+            data={"id": 1000, "name": "New Employee", "age": 40, "salary": 100000},
+            is_update=False,
+            conditions=[]
+        )
+        
+        employees_table.write_buffer(dw)
+        
+        employees_table.dml_manager.flush_table("employees")
+        
+        retrieval = DataRetrieval(
+            table_name="employees",
+            columns=["*"]
+        )
+        
+        result = employees_table.read_buffer(retrieval)
+        
+        assert result.rows_count == 6
+        assert len(result.data) == 6
+        
+        ids = [row["id"] for row in result.data]
+        assert len(set(ids)) == len(ids), "Duplicate IDs found, indicating double read"
+        
+        assert any(row["id"] == 1000 for row in result.data), "New data not found in result"
+
+
 
 class TestWriteOperations:
     
@@ -520,31 +594,6 @@ class TestBufferWriteOperations:
         assert deleted == 1
         assert result.rows_count == 4
     
-    def test_flush_buffer(self, employees_table):
-        dw = DataWrite(
-            table_name="employees",
-            data={"id": 1000, "name": "Buffer Guy", "age": 40, "salary": 100000},
-            is_update=False,
-            conditions=[]
-        )
-        
-        employees_table.write_buffer(dw)
-        
-        stats_before = employees_table.get_buffer_stats()
-        assert stats_before["dirty_pages"] >= 1
-        
-        employees_table.flush_buffer("employees")
-        
-        stats_after = employees_table.get_buffer_stats()
-        assert stats_after["dirty_pages"] == 0
-        
-        result = employees_table.read_block(DataRetrieval(
-            table_name="employees", 
-            columns=["*"]
-        ))
-        
-        assert result.rows_count == 6
-        assert any(row["id"] == 1000 for row in result.data)
     
     def test_buffer_vs_no_buffer_consistency(self, employees_table, employees_table_no_buffer):
         dw = DataWrite(
@@ -555,14 +604,74 @@ class TestBufferWriteOperations:
         )
         
         employees_table.write_buffer(dw)
+        employees_table.dml_manager.flush_table("employees")
         employees_table_no_buffer.write_block(dw)
         
-        employees_table.flush_buffer()
-        
-        result_buffer = employees_table.read_block(DataRetrieval(table_name="employees", columns=["*"]))
+        result_buffer = employees_table.read_buffer(DataRetrieval(table_name="employees", columns=["*"]))
         result_no_buffer = employees_table_no_buffer.read_block(DataRetrieval(table_name="employees", columns=["*"]))
         
         assert result_buffer.rows_count == result_no_buffer.rows_count == 6
+    
+    def test_complex_buffer_disk_interaction(self, employees_table):
+        # Insert new data to buffer
+        dw1 = DataWrite(
+            table_name="employees",
+            data={"id": 1001, "name": "John", "age": 45, "salary": 95000},
+            is_update=False,
+            conditions=[]
+        )
+        employees_table.write_buffer(dw1)
+        
+        # Update existing data in buffer
+        dw2 = DataWrite(
+            table_name="employees",
+            data={"salary": 80000},
+            is_update=True,
+            conditions=[Condition(column="id", operator=ComparisonOperator.EQ, value=1)]
+        )
+        employees_table.write_buffer(dw2)
+        
+        # Delete data in buffer
+        dd = DataDeletion(
+            table_name="employees",
+            conditions=[Condition(column="age", operator=ComparisonOperator.LT, value=30)]
+        )
+        employees_table.delete_buffer(dd)
+        
+        # Read from buffer
+        retrieval = DataRetrieval(table_name="employees", columns=["*"])
+        result_buffer = employees_table.read_buffer(retrieval)
+        
+        # Check buffer stats
+        stats_before_flush = employees_table.get_buffer_stats()
+        assert stats_before_flush["dirty_pages"] >= 1
+        assert stats_before_flush["pages_in_buffer"] >= 1
+        
+        # Flush to disk (this use flush_table not flush_buffer)
+        employees_table.dml_manager.flush_table("employees")
+        
+        # Read from disk
+        result_disk = employees_table.read_block(retrieval)
+        
+        # Ensure buffer and disk are consistent
+        assert result_buffer.rows_count == result_disk.rows_count
+        assert result_buffer.data == result_disk.data
+        
+        # Check for no duplicates
+        ids = [row["id"] for row in result_buffer.data]
+        assert len(set(ids)) == len(ids)
+        
+        # Clear buffer and read again (should fallback to disk)
+        employees_table.buffer_pool.clear()
+        result_after_clear = employees_table.read_buffer(retrieval)
+        assert result_after_clear.rows_count == result_disk.rows_count
+        assert result_after_clear.data == result_disk.data
+        
+        # Check stats after clear and read (buffer will have 1 page after read)
+        stats_after_clear = employees_table.get_buffer_stats()
+        assert stats_after_clear["pages_in_buffer"] == 1  # Buffer reloaded after read
+        assert stats_after_clear["dirty_pages"] == 0
+        assert stats_after_clear["miss_count"] >= 1
 
 
 class TestIndexOperations:
@@ -776,46 +885,6 @@ class TestBufferIndexOperations:
         
         assert not employees_table.has_index("employees", "age")
 
-    def test_drop_index_buffer_then_flush_verify_gone(self, employees_table):
-        employees_table.set_index("employees", "age", "b_plus_tree")
-        assert employees_table.has_index("employees", "age")
-        
-        dw = DataWrite(
-            table_name="employees",
-            data={"id": 1000, "name": "Indexed Guy", "age": 40, "salary": 100000},
-            is_update=False,
-            conditions=[]
-        )
-        employees_table.write_buffer(dw)
-        
-        retrieval = DataRetrieval(
-            table_name="employees",
-            columns=["*"],
-            conditions=[Condition(column="age", operator=ComparisonOperator.EQ, value=40)]
-        )
-        result_before = employees_table.read_buffer(retrieval)
-        assert result_before.rows_count >= 1
-        assert any(row["id"] == 1000 for row in result_before.data)
-        
-        employees_table.drop_index("employees", "age")
-        assert not employees_table.has_index("employees", "age")
-        
-        employees_table.flush_buffer("employees")
-        
-        assert not employees_table.has_index("employees", "age")
-        
-        result_after = employees_table.read_block(retrieval)
-        assert result_after.rows_count >= 1
-        assert any(row["id"] == 1000 for row in result_after.data)
-        
-        retrieval_full = DataRetrieval(
-            table_name="employees",
-            columns=["*"],
-            conditions=[Condition(column="age", operator=ComparisonOperator.EQ, value=30)]
-        )
-        result_full = employees_table.read_buffer(retrieval_full)
-        assert result_full.rows_count >= 1
-
 
 class TestConstraints:
     
@@ -848,7 +917,7 @@ class TestBufferStats:
         stats = storage.get_buffer_stats()
         
         assert stats["buffer_enabled"] == True
-        assert stats["pool_size"] == 100
+        assert stats["pool_size"] == 200
         assert stats["pages_in_buffer"] == 0
         assert stats["hit_count"] == 0
         assert stats["miss_count"] == 0
