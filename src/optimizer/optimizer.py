@@ -1,7 +1,6 @@
 from typing import List, Optional, Dict
 from src.core.models import ParsedQuery
 from src.core.models.query import QueryTree
-from src.core.models.storage import Statistic
 from src.core import IQueryOptimizer, IStorageManager
 from .parser import QueryParser
 from .cost.cost_model import CostModel
@@ -9,45 +8,36 @@ from .rules import (
     JoinCommutativityRule,
     JoinAssociativityRule,
     ProjectionEliminationRule,
-    ProjectionPushdownRule,
     SelectionCartesianProductRule,
     SelectionCommutativityRule,
     SelectionDecompositionRule,
     SelectionJoinDistributionRule,
     SelectionThetaJoinRule,
 )
+from ._plan_scorer import PlanScorer
+from ._candidate_generator import CandidateGenerator
+from ._plan_utils import count_joins
 
 
 class QueryOptimizer(IQueryOptimizer):
 
     def __init__(self,
                  storage_manager: IStorageManager,
-                 rules: Optional[List] = None,
-                 statistics: Optional[Dict[str, Statistic]] = None,
-                 max_iterations: int = 10):
+                 max_iterations: int = 10,
+                 num_candidates: int = 5,
+                 use_heuristics: bool = True,
+                 heuristic_weights: Optional[Dict[str, float]] = None):
 
         self._storage_manager = storage_manager
         self._max_iterations = max_iterations
         self._parser = QueryParser()
+        self._num_candidates = num_candidates
+        self._use_heuristics = use_heuristics
 
-        # Use default rules if none provided
-        if rules is None:
-            rules = self._get_default_rules()
-
-        self._rules = rules
-
-        if statistics is not None:
-            self._cost_model = CostModel(statistics)
-        else:
-            self._cost_model = None
-
-    def _get_default_rules(self) -> List:
-
-        return [
+        self._rules = [
             JoinCommutativityRule(),
-            JoinAssociativityRule(prefer_right_deep=True),
+            JoinAssociativityRule(prefer_right_deep=False),
             ProjectionEliminationRule(),
-            ProjectionPushdownRule(),
             SelectionCartesianProductRule(),
             SelectionCommutativityRule(),
             SelectionDecompositionRule(),
@@ -55,66 +45,104 @@ class QueryOptimizer(IQueryOptimizer):
             SelectionJoinDistributionRule(self._storage_manager),
         ]
 
+        self._cost_model = CostModel(storage_manager=self._storage_manager)
+
+        self._plan_scorer = PlanScorer(
+            storage_manager=self._storage_manager,
+            heuristic_weights=heuristic_weights
+        )
+
+        self._candidate_generator = CandidateGenerator(
+            storage_manager=self._storage_manager
+        )
+
+    @property
+    def rules(self) -> List:
+        return self._rules
+
     def parse_query(self, query: str) -> ParsedQuery:
         return self._parser(query)
 
     def optimize_query(self, query: ParsedQuery) -> ParsedQuery:
-        current_tree = query.tree
-        iteration = 0
+        transformed = self._apply_basic_transformations(query.tree)
 
-        while iteration < self._max_iterations:
-            iteration += 1
-            optimized = self._apply_rules_once(current_tree)
+        if not self._use_heuristics:
+            return ParsedQuery(tree=transformed, query=query.query)
 
-            # Stop if no changes were made
-            if optimized is current_tree:
-                break
+        if not self._needs_candidate_generation(transformed):
+            return ParsedQuery(tree=transformed, query=query.query)
 
-            current_tree = optimized
+        candidates = self._candidate_generator.generate_candidates(
+            transformed,
+            self._num_candidates
+        )
 
-        return ParsedQuery(tree=current_tree, query=query.query)
+        scored_plans = [self._plan_scorer.score_plan(candidate) for candidate in candidates]
+
+        if scored_plans:
+            best_plan = min(scored_plans, key=lambda x: x.total_score)
+            return ParsedQuery(tree=best_plan.plan, query=query.query)
+        else:
+            return ParsedQuery(tree=transformed, query=query.query)
 
     def get_cost(self, query: ParsedQuery) -> float:
         if self._cost_model is None:
-            raise NotImplementedError("Cost model not initialized. Provide statistics to constructor.")
+            raise NotImplementedError("Cost model not initialized.")
         return self._cost_model.get_cost(query.tree)
 
-    def _apply_rules_once(self, tree: QueryTree) -> QueryTree:
-        optimized_children = []
-        children_changed = False
+    def _apply_basic_transformations(self, tree: QueryTree) -> QueryTree:
+        beneficial_rules = [
+            SelectionDecompositionRule(),
+            SelectionCartesianProductRule(),
+            ProjectionEliminationRule(),
+        ]
 
-        for child in tree.children:
-            optimized_child = self._apply_rules_once(child)
-            optimized_children.append(optimized_child)
-            if optimized_child is not child:
-                children_changed = True
+        current = tree
+        changed = True
+        iterations = 0
 
-        # Create new node if children changed
-        if children_changed:
-            tree = QueryTree(
-                type=tree.type,
-                value=tree.value,
-                children=optimized_children,
-                parent=tree.parent
-            )
-            for child in tree.children:
-                child.parent = tree
+        while changed and iterations < self._max_iterations:
+            changed = False
+            iterations += 1
 
-        for rule in self._rules:
-            if rule.is_applicable(tree):
-                optimized = rule.apply(tree)
-                if optimized is not None:
+            for rule in beneficial_rules:
+                new_tree = self._apply_rule_bottom_up(current, rule)
+                if new_tree and new_tree is not current:
+                    current = new_tree
+                    changed = True
+                    break
+
+        return current
+
+    def _apply_rule_bottom_up(self, tree: QueryTree, rule) -> Optional[QueryTree]:
+        from copy import deepcopy
+
+        def traverse(node):
+            for i, child in enumerate(node.children):
+                result = traverse(child)
+                if result:
+                    node.children[i] = result
+                    result.parent = node
+
+            if rule.is_applicable(node):
+                optimized = rule.apply(node)
+                if optimized:
                     return optimized
 
-        return tree
+            return None
 
-    def add_rule(self, rule):
-        self._rules.append(rule)
+        new_tree = deepcopy(tree)
+        result = traverse(new_tree)
 
-    def remove_rule(self, rule_name: str):
-        self._rules = [r for r in self._rules if r.name != rule_name]
+        if result:
+            return result
+        else:
+            for i in range(len(new_tree.children)):
+                if hasattr(new_tree.children[i], 'parent'):
+                    new_tree.children[i].parent = new_tree
 
-    @property
-    def rules(self) -> List:
-        """Get the list of active rules."""
-        return self._rules.copy()
+            return new_tree
+
+    def _needs_candidate_generation(self, tree: QueryTree) -> bool:
+        num_joins = count_joins(tree)
+        return num_joins >= 2
