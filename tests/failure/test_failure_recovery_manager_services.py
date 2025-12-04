@@ -261,18 +261,15 @@ class TestFailureRecoveryManagerServices :
 
     def test_save_checkpoint_6c(self , tmp_path : Path) -> None :
         """
-        6c. Save Checkpoint Applies Committed Changes To Storage Manager
-        - Fungsi save_checkpoint() harus memanggil storage_manager.write_block() untuk setiap CHANGE dari transaksi yang sudah COMMIT setelah checkpoint terakhir.
+        6c. Save Checkpoint Flushes Storage Manager Buffer
+        - Fungsi save_checkpoint() harus memanggil storage_manager.flush_buffer() untuk memastikan semua perubahan di buffer ditulis ke disk.
         """
         class DummyStorageManager :
             def __init__(self) -> None :
-                self.calls = []
+                self.flush_called = False
 
-            def write_block(self , data_write) -> None :
-                self.calls.append(data_write)
-
-            def delete_block(self , data_delete) -> None :
-                self.calls.append(data_delete)
+            def flush_buffer(self, table_name = None) -> None :
+                self.flush_called = True
 
         log_path = tmp_path / "wal.jsonl"
         storage_manager = DummyStorageManager()
@@ -300,19 +297,7 @@ class TestFailureRecoveryManagerServices :
         manager.write_log(record_commit)
         manager.write_log(record_change_uncommitted)
         manager.save_checkpoint()
-        assert (len(storage_manager.calls) == 1)
-        data_write = storage_manager.calls[0]
-        assert (getattr(data_write , "table_name") == "Employee")
-        assert (getattr(data_write , "is_update") is True)
-        data_payload = getattr(data_write , "data")
-        assert (isinstance(data_payload , dict))
-        assert (data_payload.get("salary") == 20_000)
-        conditions = getattr(data_write , "conditions")
-        assert (isinstance(conditions , list))
-        assert (len(conditions) == 1)
-        condition0 = conditions[0]
-        assert (getattr(condition0 , "column") == "id")
-        assert (hasattr(condition0 , "operator"))
+        assert (storage_manager.flush_called is True)
 
     def test_recover_7a(self , tmp_path : Path) -> None :
         """
