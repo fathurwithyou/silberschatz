@@ -73,7 +73,7 @@ class DeleteOperator:
                 conditions=[pk_condition]
             )
 
-            count = self.storage_manager.delete_block(delete_request)
+            count = self.storage_manager.delete_buffer(delete_request)
             deleted_count += count
 
         return Rows(

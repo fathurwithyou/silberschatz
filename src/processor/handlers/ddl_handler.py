@@ -355,7 +355,7 @@ class DDLHandler:
                     modified = True
 
             if modified:
-                # self.processor.storage.update_table_schema(schema) # TODO: uncomment this line when update_table_schema is implemented
+                self.processor.storage.update_table_schema(schema)
                 updated_tables.append(dependent)
 
         return updated_tables

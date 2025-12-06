@@ -75,7 +75,7 @@ def test_delete_single_row():
     frm = _make_mock_frm()
     operator = DeleteOperator(ccm, storage, frm)
 
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     storage.list_tables = Mock(return_value=[]) 
 
     schema = create_test_schema()
@@ -88,8 +88,8 @@ def test_delete_single_row():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    storage.delete_block.assert_called_once()
-    call_args = storage.delete_block.call_args[0][0]
+    storage.delete_buffer.assert_called_once()
+    call_args = storage.delete_buffer.call_args[0][0]
     assert call_args.table_name == "employees"
     assert len(call_args.conditions) == 1
     assert call_args.conditions[0].column == "id"
@@ -103,7 +103,7 @@ def test_delete_multiple_rows():
     frm = _make_mock_frm()
     operator = DeleteOperator(ccm, storage, frm)
 
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     storage.list_tables = Mock(return_value=[]) 
 
     schema = create_test_schema()
@@ -117,7 +117,7 @@ def test_delete_multiple_rows():
     result = operator.execute(rows, tx_id=1)
     
     assert result.rows_count == 2
-    assert storage.delete_block.call_count == 2
+    assert storage.delete_buffer.call_count == 2
 
 
 def test_delete_with_qualified_column_names():
@@ -127,7 +127,7 @@ def test_delete_with_qualified_column_names():
     frm = _make_mock_frm()
     operator = DeleteOperator(ccm, storage, frm)
 
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     storage.list_tables = Mock(return_value=[]) 
 
     schema = create_test_schema()
@@ -137,7 +137,7 @@ def test_delete_with_qualified_column_names():
     
     operator.execute(rows, tx_id=1)
     
-    call_args = storage.delete_block.call_args[0][0]
+    call_args = storage.delete_buffer.call_args[0][0]
     assert call_args.conditions[0].column == "id"
     assert call_args.conditions[0].value == 2
 
@@ -149,7 +149,7 @@ def test_delete_with_mixed_column_names():
     frm = _make_mock_frm()
     operator = DeleteOperator(ccm, storage, frm)
 
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     storage.list_tables = Mock(return_value=[]) 
 
     schema = create_test_schema()
@@ -159,7 +159,7 @@ def test_delete_with_mixed_column_names():
     
     operator.execute(rows, tx_id=1)
     
-    call_args = storage.delete_block.call_args[0][0]
+    call_args = storage.delete_buffer.call_args[0][0]
     assert call_args.conditions[0].value == 3
 
 
@@ -170,7 +170,7 @@ def test_delete_no_rows_affected():
     frm = _make_mock_frm()
     operator = DeleteOperator(ccm, storage, frm)
 
-    storage.delete_block = Mock(return_value=0)
+    storage.delete_buffer = Mock(return_value=0)
     storage.list_tables = Mock(return_value=[]) 
 
     schema = create_test_schema()
@@ -259,7 +259,7 @@ def test_delete_restrict_violation():
     )
 
     storage.list_tables = Mock(return_value=["employees", "dependents"])
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     
     def get_schema_side_effect(table_name):
         if table_name == "employees": return parent_schema
@@ -303,7 +303,7 @@ def test_delete_set_null_action():
     )
 
     storage.list_tables = Mock(return_value=["teams"])
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     storage.write_buffer = Mock(return_value=1) # Mock write block
     
     def get_schema_side_effect(table_name):
@@ -358,7 +358,7 @@ def test_delete_cascade_action():
 
     # Monkey Patching
     storage.list_tables = Mock(return_value=["salaries"])
-    storage.delete_block = Mock(return_value=1)
+    storage.delete_buffer = Mock(return_value=1)
     
     def get_schema_side_effect(table_name):
         if table_name == "employees": return parent_schema
