@@ -123,7 +123,7 @@ def test_drop_table_restrict_blocks_dependent_tables():
         cleanup_test_data()
 
 
-def test_drop_table_cascade_removes_dependents():
+def test_drop_table_cascade_removes_foreign_key_references():
     cleanup_test_data()
     processor, storage = setup_processor_with_fk_chain()
 
@@ -132,7 +132,18 @@ def test_drop_table_cascade_removes_dependents():
 
         assert isinstance(result, ExecutionResult)
         assert "departments" in result.message
-        assert storage.list_tables() == []
+        remaining_tables = sorted(storage.list_tables())
+        assert remaining_tables == ["employee_projects", "employees"]
+
+        employee_schema = storage.get_table_schema("employees")
+        assert employee_schema is not None
+
+        fk_column = next(
+            (col for col in employee_schema.columns if col.name == "department_id"),
+            None,
+        )
+        assert fk_column is not None
+        assert fk_column.foreign_key is None
     finally:
         cleanup_test_data()
 

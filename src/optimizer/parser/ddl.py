@@ -116,7 +116,6 @@ class CreateIndexParser(BaseParser):
             value = f"{index_name} ON {table_name}({column_name}) USING {index_type}"
         else:
             value = f"{index_name} ON {table_name}({column_name})"
-
         return QueryTree(type=QueryNodeType.CREATE_INDEX, value=value, children=[])
 
 
@@ -170,5 +169,4 @@ class DropIndexParser(BaseParser):
                 raise ValueError("Invalid DROP INDEX syntax: index name is required")
 
             value = index_name
-
         return QueryTree(type=QueryNodeType.DROP_INDEX, value=value, children=[])

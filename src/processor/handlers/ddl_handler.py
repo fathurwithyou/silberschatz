@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Set, Tuple
+from typing import TYPE_CHECKING, List, Tuple
 from src.core.models import (
     ExecutionResult, ParsedQuery, QueryNodeType,
     TableSchema, ColumnDefinition, DataType, ForeignKeyConstraint, ForeignKeyAction
@@ -30,15 +30,14 @@ class DDLHandler:
         tx_id = self.processor.transaction_id or 0
 
         if drop_mode == "CASCADE":
-            drop_order = self._collect_cascade_drop_order(table_name)
-            dropped_tables: List[str] = []
+            updated_tables = self._remove_foreign_key_references(table_name)
+            self.processor.storage.drop_table(table_name)
+            dropped_tables = [table_name]
 
-            for name in drop_order:
-                self.processor.storage.drop_table(name)
-                dropped_tables.append(name)
-
-            message = "DROP TABLE CASCADE completed. Tables dropped: " + \
-                ", ".join(dropped_tables)
+            message = f"DROP TABLE CASCADE completed. Table dropped: {table_name}"
+            if updated_tables:
+                message += ". Foreign key references removed from: " + \
+                    ", ".join(updated_tables)
         else:
             dependents = self._find_dependent_tables(table_name)
             if dependents:
@@ -341,22 +340,22 @@ class DDLHandler:
 
         return sorted(dependents)
 
-    def _collect_cascade_drop_order(
-        self,
-        table_name: str,
-        visited: Set[str] | None = None
-    ) -> List[str]:
-        if visited is None:
-            visited = set()
-
-        if table_name in visited:
-            return []
-
-        visited.add(table_name)
-        order: List[str] = []
-
+    def _remove_foreign_key_references(self, table_name: str) -> List[str]:
+        updated_tables: List[str] = []
         for dependent in self._find_dependent_tables(table_name):
-            order.extend(self._collect_cascade_drop_order(dependent, visited))
+            schema = self.processor.storage.get_table_schema(dependent)
+            if schema is None:
+                continue
 
-        order.append(table_name)
-        return order
+            modified = False
+            for column in schema.columns:
+                fk = getattr(column, "foreign_key", None)
+                if fk and fk.referenced_table == table_name:
+                    column.foreign_key = None
+                    modified = True
+
+            if modified:
+                self.processor.storage.update_table_schema(schema)
+                updated_tables.append(dependent)
+
+        return updated_tables

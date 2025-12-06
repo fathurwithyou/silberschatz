@@ -149,12 +149,161 @@ class BPlusTreeIndex(BaseIndex):
 
         return result
 
+    def range_search_greater_than(self, start_key: Any, inclusive: bool = True) -> List[int]:
+        """
+        Range search untuk x >= start_key atau x > start_key
+
+        Masukkan:
+            start_key: Batas bawah
+            inclusive: True untuk >=, False untuk >
+
+        Returns:
+            List of row IDs yang memenuhi kondisi
+        """
+        result = []
+
+        leaf = self._find_leaf(self.root, start_key)
+
+        while leaf:
+            for i, key in enumerate(leaf.keys):
+                if inclusive:
+                    if key >= start_key:
+                        row_ids = leaf.children[i]
+                        if isinstance(row_ids, list):
+                            result.extend(row_ids)
+                        else:
+                            result.append(row_ids)
+                else:
+                    if key > start_key:
+                        row_ids = leaf.children[i]
+                        if isinstance(row_ids, list):
+                            result.extend(row_ids)
+                        else:
+                            result.append(row_ids)
+
+            leaf = leaf.next
+
+        return result
+
+    def range_search_less_than(self, end_key: Any, inclusive: bool = True) -> List[int]:
+        """
+        Range search untuk x <= end_key atau x < end_key
+
+        Masukkan:
+            end_key: Batas atas
+            inclusive: True untuk <=, False untuk <
+
+        Returns:
+            List of row IDs yang memenuhi kondisi
+        """
+        result = []
+
+        leaf = self._find_leftmost_leaf(self.root)
+
+        while leaf:
+            for i, key in enumerate(leaf.keys):
+                if inclusive:
+                    if key <= end_key:
+                        row_ids = leaf.children[i]
+                        if isinstance(row_ids, list):
+                            result.extend(row_ids)
+                        else:
+                            result.append(row_ids)
+                    else:
+                        return result
+                else:
+                    if key < end_key:
+                        row_ids = leaf.children[i]
+                        if isinstance(row_ids, list):
+                            result.extend(row_ids)
+                        else:
+                            result.append(row_ids)
+                    else:
+                        return result
+
+            leaf = leaf.next
+
+        return result
+
+    def range_search_advanced(self, start_key: Any = None, end_key: Any = None,
+                             start_inclusive: bool = True, end_inclusive: bool = True) -> List[int]:
+        """
+        Range search yang fleksibel dengan support untuk:
+        - Bounded range: start_key <= x <= end_key
+        - Unbounded bawah: x <= end_key (start_key = None)
+        - Unbounded atas: x >= start_key (end_key = None)
+        - Strict inequalities: menggunakan start_inclusive dan end_inclusive
+
+        Masukkan:
+            start_key: Batas bawah (None untuk unbounded)
+            end_key: Batas atas (None untuk unbounded)
+            start_inclusive: True untuk >=, False untuk >
+            end_inclusive: True untuk <=, False untuk <
+
+        Returns:
+            List of row IDs yang memenuhi kondisi
+        """
+        if start_key is None and end_key is None:
+            result = []
+            leaf = self._find_leftmost_leaf(self.root)
+            while leaf:
+                for i in range(len(leaf.keys)):
+                    row_ids = leaf.children[i]
+                    if isinstance(row_ids, list):
+                        result.extend(row_ids)
+                    else:
+                        result.append(row_ids)
+                leaf = leaf.next
+            return result
+
+        if start_key is None:
+            return self.range_search_less_than(end_key, end_inclusive)
+
+        if end_key is None:
+            return self.range_search_greater_than(start_key, start_inclusive)
+
+        result = []
+        leaf = self._find_leaf(self.root, start_key)
+
+        while leaf:
+            for i, key in enumerate(leaf.keys):
+                start_ok = False
+                if start_inclusive:
+                    start_ok = key >= start_key
+                else:
+                    start_ok = key > start_key
+
+                end_ok = False
+                if end_inclusive:
+                    end_ok = key <= end_key
+                else:
+                    end_ok = key < end_key
+
+                if start_ok and end_ok:
+                    row_ids = leaf.children[i]
+                    if isinstance(row_ids, list):
+                        result.extend(row_ids)
+                    else:
+                        result.append(row_ids)
+                elif key > end_key:
+                    return result
+
+            leaf = leaf.next
+
+        return result
+
     def _find_leaf(self, node: BPlusTreeNode, key: Any) -> Optional[BPlusTreeNode]:
         if node.is_leaf:
             return node
 
         index = node.find_index(key)
         return self._find_leaf(node.children[index], key)
+
+    def _find_leftmost_leaf(self, node: BPlusTreeNode) -> Optional[BPlusTreeNode]:
+        """Helper untuk menemukan leaf paling kiri (smallest keys)"""
+        if node.is_leaf:
+            return node
+        return self._find_leftmost_leaf(node.children[0])
 
     def delete(self, key: Any, row_id: int) -> None:
         """
@@ -170,12 +319,16 @@ class BPlusTreeIndex(BaseIndex):
             for i, k in enumerate(node.keys):
                 if k == key:
                     row_ids = node.children[i]
-                    if isinstance(row_ids, list) and row_id in row_ids:
+                    if not isinstance(row_ids, list):
+                        row_ids = [row_ids]
+                    if row_id in row_ids:
                         row_ids.remove(row_id)
                         if not row_ids:
                             node.keys.pop(i)
                             node.children.pop(i)
-                    break
+                        else:
+                            node.children[i] = row_ids
+                    return
         else:
             index = node.find_index(key)
             if index < len(node.children):
