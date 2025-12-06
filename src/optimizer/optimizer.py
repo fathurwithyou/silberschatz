@@ -92,8 +92,8 @@ class QueryOptimizer(IQueryOptimizer):
 
     def _apply_basic_transformations(self, tree: QueryTree) -> QueryTree:
         beneficial_rules = [
-            SelectionDecompositionRule(),
-            SelectionCartesianProductRule(),
+            SelectionCartesianProductRule(), 
+            SelectionDecompositionRule(), 
             ProjectionEliminationRule(),
         ]
 
@@ -117,16 +117,22 @@ class QueryOptimizer(IQueryOptimizer):
     def _apply_rule_bottom_up(self, tree: QueryTree, rule) -> Optional[QueryTree]:
         from copy import deepcopy
 
+        modified = False
+
         def traverse(node):
+            nonlocal modified
+
             for i, child in enumerate(node.children):
                 result = traverse(child)
                 if result:
                     node.children[i] = result
                     result.parent = node
+                    modified = True
 
             if rule.is_applicable(node):
                 optimized = rule.apply(node)
                 if optimized:
+                    modified = True
                     return optimized
 
             return None
@@ -135,13 +141,15 @@ class QueryOptimizer(IQueryOptimizer):
         result = traverse(new_tree)
 
         if result:
+            # Root node was transformed
             return result
-        else:
-            for i in range(len(new_tree.children)):
-                if hasattr(new_tree.children[i], 'parent'):
-                    new_tree.children[i].parent = new_tree
-
+        elif modified:
+            # Some child nodes were transformed
             return new_tree
+        else:
+            # No transformations occurred anywhere in the tree
+            # Return the original tree to indicate no change
+            return tree
 
     def _needs_candidate_generation(self, tree: QueryTree) -> bool:
         num_joins = count_joins(tree)
