@@ -42,6 +42,9 @@ class DatabaseClient:
     
     def send_query(self, query: str) -> str:
         """Send a single query and return the response."""
+        if not query.strip():
+            return ""
+        
         if not self.socket:
             raise ConnectionError("Not connected to server")
         
@@ -54,16 +57,16 @@ class DatabaseClient:
         
     def _handle_transaction(self, query: str) -> bool:
         """Handle transaction commands locally."""
-        query = query.strip().upper()
+        query = query.strip()
         
-        if query == "BEGIN TRANSACTION":
+        if query.upper() == "BEGIN TRANSACTION":
             if self.transaction_active:
                 raise ValueError("Transaction already active")
             
             self.transaction_active = True
             return True
         
-        elif query == "COMMIT":
+        elif query.upper() == "COMMIT":
             if not self.transaction_active:
                 raise ValueError("No active transaction to commit")
             
@@ -72,7 +75,7 @@ class DatabaseClient:
             self.transaction_queries = []
             return True
         
-        elif query == "ABORT":
+        elif query.upper() == "ABORT":
             if not self.transaction_active:
                 raise ValueError("No active transaction to abort")
             
