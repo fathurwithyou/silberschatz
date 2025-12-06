@@ -177,7 +177,8 @@ class StorageManager(IStorageManager):
 
         deleted_count = 0
         kept = []
-        
+        kept_with_old_id = []
+
         for i, row in enumerate(all_rows.data):
             if self.dml_manager._matches(row, conditions):
                 for column_def in schema.columns:
@@ -187,12 +188,24 @@ class StorageManager(IStorageManager):
                         value = row.get(column)
                         if value is not None:
                             index.delete(value, i)
-                
+
                 deleted_count += 1
             else:
                 kept.append(row)
+                kept_with_old_id.append((i, row))
 
         if deleted_count > 0:
+            for new_row_id, (old_row_id, row) in enumerate(kept_with_old_id):
+                if old_row_id != new_row_id:
+                    for column_def in schema.columns:
+                        column = column_def.name
+                        if self.has_index(table, column):
+                            index = self.indexes[(table, column)]
+                            value = row.get(column)
+                            if value is not None:
+                                index.delete(value, old_row_id)
+                                index.insert(value, new_row_id)
+
             new_rows = Rows(data=kept, rows_count=len(kept))
             self.dml_manager._save_to_disk(table, new_rows, schema)
 
@@ -335,7 +348,8 @@ class StorageManager(IStorageManager):
 
         deleted_count = 0
         kept = []
-        
+        kept_with_old_id = []
+
         for i, row in enumerate(all_rows.data):
             if self.dml_manager._matches(row, conditions):
                 for column_def in schema.columns:
@@ -345,12 +359,24 @@ class StorageManager(IStorageManager):
                         value = row.get(column)
                         if value is not None:
                             index.delete(value, i)
-                
+
                 deleted_count += 1
             else:
                 kept.append(row)
+                kept_with_old_id.append((i, row))
 
         if deleted_count > 0:
+            for new_row_id, (old_row_id, row) in enumerate(kept_with_old_id):
+                if old_row_id != new_row_id:
+                    for column_def in schema.columns:
+                        column = column_def.name
+                        if self.has_index(table, column):
+                            index = self.indexes[(table, column)]
+                            value = row.get(column)
+                            if value is not None:
+                                index.delete(value, old_row_id)
+                                index.insert(value, new_row_id)
+
             new_rows = Rows(data=kept, rows_count=len(kept))
             self.dml_manager.save_all_rows(table, new_rows, schema)
 
