@@ -77,6 +77,13 @@ class CandidateGenerator:
         return self._apply_selection_pushdown(tree)
 
     def _generate_bushy_tree_plan(self, tree: QueryTree) -> Optional[QueryTree]:
+        # Skip bushy tree optimization if there are JOIN conditions
+        # Reordering joins with associativity requires validating that conditions
+        # remain applicable after transformation
+        join_conditions = self._extract_join_conditions(tree)
+        if join_conditions:
+            return None
+
         from copy import deepcopy
         plan = deepcopy(tree)
 
