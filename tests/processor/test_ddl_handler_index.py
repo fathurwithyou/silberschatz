@@ -354,8 +354,6 @@ def test_index_persists_after_delete():
         all_result = processor.execute_query("SELECT * FROM users")
         assert all_result.data is not None
         assert len(all_result.data.data) == 2 
-        for row in all_result.data.data:
-            print(row)
         
         result = processor.execute_query("SELECT * FROM users WHERE age = 30")
         assert result.data is not None
