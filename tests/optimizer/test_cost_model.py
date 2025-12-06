@@ -170,6 +170,7 @@ def mock_storage_manager_for_cost_model(statistics):
         def create_table(self, schema: TableSchema) -> None: raise NotImplementedError
         def drop_table(self, table_name: str) -> None: raise NotImplementedError
         def get_table_schema(self, table_name: str) -> Optional[TableSchema]: return None
+        def update_table_schema(self, table_name: str, new_schema: TableSchema) -> None: raise NotImplementedError
         def list_tables(self) -> List[str]: return []
         def read_buffer(self, data_retrieval: DataRetrieval) -> Rows: raise NotImplementedError
         def write_buffer(self, data_write: DataWrite) -> int: raise NotImplementedError

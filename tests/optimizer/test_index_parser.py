@@ -18,7 +18,6 @@ class TestCreateIndexParser:
         tree = parser(query)
 
         assert tree.type == QueryNodeType.CREATE_INDEX
-        assert "idx_employee_name" in tree.value
         assert "employee" in tree.value
         assert "name" in tree.value
         assert tree.children == []
@@ -29,7 +28,6 @@ class TestCreateIndexParser:
         tree = parser(query)
 
         assert tree.type == QueryNodeType.CREATE_INDEX
-        assert "idx_employee_dept" in tree.value
         assert "employee" in tree.value
         assert "dept_id" in tree.value
         assert "USING BTREE" in tree.value
@@ -54,11 +52,10 @@ class TestCreateIndexParser:
             assert tree.type == QueryNodeType.CREATE_INDEX
 
     def test_create_index_preserves_names_case(self, parser):
-        """Test that index, table, and column names case is preserved."""
+        """Test that table and column names case is preserved."""
         query = "CREATE INDEX MyIndex ON MyTable(MyColumn)"
         tree = parser(query)
 
-        assert "MyIndex" in tree.value
         assert "MyTable" in tree.value
         assert "MyColumn" in tree.value
 
@@ -68,7 +65,6 @@ class TestCreateIndexParser:
         tree = parser(query)
 
         assert tree.type == QueryNodeType.CREATE_INDEX
-        assert "idx_test" in tree.value
         assert "employee" in tree.value
         assert "name" in tree.value
 
@@ -77,14 +73,14 @@ class TestCreateIndexParser:
         query = "CREATE INDEX idx_test ON employee(name)"
         tree = parser(query)
 
-        assert tree.value == "idx_test ON employee(name)"
+        assert tree.value == "employee(name)"
 
     def test_create_index_value_format_with_using(self, parser):
         """Test that CREATE INDEX value is formatted correctly with USING."""
         query = "CREATE INDEX idx_test ON employee(name) USING BTREE"
         tree = parser(query)
 
-        assert tree.value == "idx_test ON employee(name) USING BTREE"
+        assert tree.value == "employee(name) USING BTREE"
 
     def test_create_index_missing_index_keyword(self, parser):
         """Test CREATE INDEX without INDEX keyword raises error."""
@@ -99,10 +95,12 @@ class TestCreateIndexParser:
             parser(query)
 
     def test_create_index_missing_index_name(self, parser):
-        """Test CREATE INDEX without index name raises error."""
+        """Test CREATE INDEX without index name still works (index name is optional/ignored)."""
         query = "CREATE INDEX ON employee(name)"
-        with pytest.raises(ValueError, match="index name is required"):
-            parser(query)
+        tree = parser(query)
+        assert tree.type == QueryNodeType.CREATE_INDEX
+        assert "employee" in tree.value
+        assert "name" in tree.value
 
     def test_create_index_missing_table_name(self, parser):
         """Test CREATE INDEX without table name raises error."""
@@ -141,7 +139,6 @@ class TestCreateIndexParser:
         tree = parser(query)
 
         assert tree.type == QueryNodeType.CREATE_INDEX
-        assert "idx_employee_dept_salary" in tree.value
         assert "employee_records" in tree.value
         assert "department_id" in tree.value
 
@@ -156,63 +153,63 @@ class TestDropIndexParser:
 
     def test_drop_index_simple(self, parser):
         """Test simple DROP INDEX."""
-        query = "DROP INDEX idx_employee_name"
+        query = "DROP INDEX idx_employee_name ON employee(name)"
         tree = parser(query)
 
         assert tree.type == QueryNodeType.DROP_INDEX
-        assert "idx_employee_name" in tree.value
+        assert "employee" in tree.value
+        assert "name" in tree.value
         assert tree.children == []
 
     def test_drop_index_with_on_clause(self, parser):
         """Test DROP INDEX with ON clause."""
-        query = "DROP INDEX idx_employee_name ON employee"
+        query = "DROP INDEX idx_employee_name ON employee(name)"
         tree = parser(query)
 
         assert tree.type == QueryNodeType.DROP_INDEX
-        assert "idx_employee_name" in tree.value
-        assert "ON employee" in tree.value
+        assert "employee" in tree.value
+        assert "name" in tree.value
 
     def test_drop_index_case_insensitive(self, parser):
         """Test that DROP INDEX keywords are case-insensitive."""
         queries = [
-            "drop index idx_test",
-            "DROP INDEX idx_test",
-            "DrOp InDeX idx_test"
+            "drop index idx_test on employee(name)",
+            "DROP INDEX idx_test ON employee(name)",
+            "DrOp InDeX idx_test oN employee(name)"
         ]
         for query in queries:
             tree = parser(query)
             assert tree.type == QueryNodeType.DROP_INDEX
 
     def test_drop_index_preserves_names_case(self, parser):
-        """Test that index and table names case is preserved."""
-        query = "DROP INDEX MyIndex ON MyTable"
+        """Test that table and column names case is preserved."""
+        query = "DROP INDEX MyIndex ON MyTable(MyColumn)"
         tree = parser(query)
 
-        assert "MyIndex" in tree.value
         assert "MyTable" in tree.value
+        assert "MyColumn" in tree.value
 
     def test_drop_index_with_spaces(self, parser):
         """Test DROP INDEX with various spacing."""
-        query = "DROP   INDEX   idx_test   ON   employee"
+        query = "DROP   INDEX   idx_test   ON   employee(name)"
         tree = parser(query)
 
         assert tree.type == QueryNodeType.DROP_INDEX
-        assert "idx_test" in tree.value
         assert "employee" in tree.value
+        assert "name" in tree.value
 
     def test_drop_index_value_format_no_on(self, parser):
-        """Test that DROP INDEX value is formatted correctly without ON."""
+        """Test that DROP INDEX without ON raises error."""
         query = "DROP INDEX idx_test"
-        tree = parser(query)
-
-        assert tree.value == "idx_test"
+        with pytest.raises(ValueError, match="ON clause not found"):
+            parser(query)
 
     def test_drop_index_value_format_with_on(self, parser):
         """Test that DROP INDEX value is formatted correctly with ON."""
-        query = "DROP INDEX idx_test ON employee"
+        query = "DROP INDEX idx_test ON employee(name)"
         tree = parser(query)
 
-        assert tree.value == "idx_test ON employee"
+        assert tree.value == "employee(name)"
 
     def test_drop_index_missing_index_keyword(self, parser):
         """Test DROP INDEX without INDEX keyword raises error."""
@@ -221,15 +218,16 @@ class TestDropIndexParser:
             parser(query)
 
     def test_drop_index_missing_index_name(self, parser):
-        """Test DROP INDEX without index name raises error."""
-        query = "DROP INDEX"
-        with pytest.raises(ValueError, match="index name is required"):
-            parser(query)
+        """Test DROP INDEX without index name still works (index name optional/ignored)."""
+        query = "DROP INDEX ON employee(name)"
+        tree = parser(query)
+        assert tree.type == QueryNodeType.DROP_INDEX
+        assert "employee" in tree.value
 
     def test_drop_index_missing_index_name_with_on(self, parser):
-        """Test DROP INDEX with ON but no index name raises error."""
+        """Test DROP INDEX with ON but missing column specification."""
         query = "DROP INDEX ON employee"
-        with pytest.raises(ValueError, match="index name is required"):
+        with pytest.raises(ValueError, match="column specification.*not found"):
             parser(query)
 
     def test_drop_index_missing_table_name_after_on(self, parser):
@@ -240,16 +238,16 @@ class TestDropIndexParser:
 
     def test_drop_index_empty_children(self, parser):
         """Test that DROP INDEX has no children."""
-        query = "DROP INDEX idx_test"
+        query = "DROP INDEX idx_test ON employee(name)"
         tree = parser(query)
 
         assert len(tree.children) == 0
 
     def test_drop_index_complex_names(self, parser):
         """Test DROP INDEX with complex naming."""
-        query = "DROP INDEX idx_employee_dept_salary ON employee_records"
+        query = "DROP INDEX idx_employee_dept_salary ON employee_records(department_id)"
         tree = parser(query)
 
         assert tree.type == QueryNodeType.DROP_INDEX
-        assert "idx_employee_dept_salary" in tree.value
         assert "employee_records" in tree.value
+        assert "department_id" in tree.value
