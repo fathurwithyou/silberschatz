@@ -22,6 +22,10 @@ class DDLHandler:
             return self._handle_drop_table(query)
         elif query.tree.type == QueryNodeType.CREATE_TABLE:
             return self._handle_create_table(query)
+        elif query.tree.type == QueryNodeType.CREATE_INDEX:
+            return self._handle_create_index(query)
+        elif query.tree.type == QueryNodeType.DROP_INDEX:
+            return self._handle_drop_index(query)
         raise SyntaxError("Unsupported DDL operation.")
 
     def _handle_drop_table(self, query: ParsedQuery) -> ExecutionResult:
@@ -359,3 +363,84 @@ class DDLHandler:
                 updated_tables.append(dependent)
 
         return updated_tables
+    
+    def _handle_create_index(self, query: ParsedQuery) -> ExecutionResult:
+        """
+        format: "<table_name>(<column_name>) [USING <index_type>]"
+        """
+        tx_id = self.processor.transaction_id or 0
+        value_str = query.tree.value.strip()
+        
+        if " USING " in value_str.upper():
+            using_pos = value_str.upper().find(" USING ")
+            table_col_part = value_str[:using_pos].strip()
+            index_type = value_str[using_pos + 7:].strip()
+        else:
+            table_col_part = value_str
+            index_type = "b_plus_tree"
+        
+        # Parse table_name(column_name)
+        paren_pos = table_col_part.find('(')
+        if paren_pos == -1:
+            raise ValueError("Invalid CREATE INDEX format: missing column specification")
+        
+        table_name = table_col_part[:paren_pos].strip()
+        column_part = table_col_part[paren_pos+1:].strip()
+        
+        if not column_part.endswith(')'):
+            raise ValueError("Invalid CREATE INDEX format: missing closing parenthesis")
+        
+        column_name = column_part[:-1].strip()
+        
+        # Validate table exists
+        if table_name not in self.processor.storage.list_tables():
+            raise ValueError(f"Table '{table_name}' does not exist")
+        
+        # Create the index
+        self.processor.storage.set_index(table_name, column_name, index_type)
+        
+        return ExecutionResult(
+            transaction_id=tx_id,
+            timestamp=datetime.now(),
+            message=f"Index created on {table_name}({column_name})",
+            data=None,
+            query=query.query
+        )
+    
+    def _handle_drop_index(self, query: ParsedQuery) -> ExecutionResult:
+        """
+        Value format: "<table_name>(<column_name>)"
+        """
+        tx_id = self.processor.transaction_id or 0
+        value_str = query.tree.value
+        
+        table_col_part = value_str.strip()
+        
+        # Parse table_name(column_name)
+        paren_pos = table_col_part.find('(')
+        if paren_pos == -1:
+            raise ValueError("Invalid DROP INDEX format: missing column specification")
+        
+        table_name = table_col_part[:paren_pos].strip()
+        column_part = table_col_part[paren_pos+1:].strip()
+        
+        if not column_part.endswith(')'):
+            raise ValueError("Invalid DROP INDEX format: missing closing parenthesis")
+        
+        column_name = column_part[:-1].strip()
+        
+        if table_name not in self.processor.storage.list_tables():
+            raise ValueError(f"Table '{table_name}' does not exist")
+        
+        if not self.processor.storage.has_index(table_name, column_name):
+            raise ValueError(f"No index exists on {table_name}({column_name})")
+        
+        self.processor.storage.drop_index(table_name, column_name)
+        
+        return ExecutionResult(
+            transaction_id=tx_id,
+            timestamp=datetime.now(),
+            message=f"Index dropped from {table_name}({column_name})",
+            data=None,
+            query=query.query
+        )

@@ -9,7 +9,13 @@ class ConditionNode(ABC):
         """
             Evaluate the condition against a given row.
         """
-        pass
+        raise NotImplementedError
+    def check_valid(self) -> tuple[Any, ComparisonOperator, Any]:
+        """
+            Check if the condition is valid in terms of types and columns.
+            This is specifically for SimpleCondition, to parse for index selection.
+        """
+        raise NotImplementedError
 
 class SimpleCondition(ConditionNode):
     def __init__(self, left: str, op: ComparisonOperator, right: str, schemas: List[TableSchema]):
@@ -17,7 +23,24 @@ class SimpleCondition(ConditionNode):
         self.op = op
         self.right = right
         self.schemas = schemas
+        
+    def check_valid(self) -> tuple[Any, ComparisonOperator, Any]:
+        val_left, type_left = self._check_value_and_type(self.left, self.schemas)
+        val_right, type_right = self._check_value_and_type(self.right, self.schemas)
+        
+        if type_left != type_right:
+            if type_left in (DataType.INTEGER, DataType.FLOAT) and type_right in (DataType.INTEGER, DataType.FLOAT):
+                pass
+            elif type_left in (DataType.CHAR, DataType.VARCHAR) and type_right in (DataType.CHAR, DataType.VARCHAR):
+                pass
+            else:
+                return None, self.op, None
+        
+        if val_left in [col.name for col in self.schemas[0].columns]:
+            return val_left, self.op, val_right
 
+        return val_right, self.op, val_left
+    
     def evaluate(self, row: Dict[str, Any]) -> bool:
         val_left, type_left = self._parse_value_and_type(self.left, self.schemas, row)
         val_right, type_right = self._parse_value_and_type(self.right, self.schemas, row)
@@ -40,6 +63,20 @@ class SimpleCondition(ConditionNode):
         
         raise ValueError(f"Unsupported operator {self.op}")
 
+    def _check_value_and_type(self, value: str, schemas: List[TableSchema]) -> tuple[Any, DataType]:
+        if value.isdigit():
+            return int(value), DataType.INTEGER
+        
+        if value.replace('.', '', 1).isdigit() and '.' in value:
+            return float(value), DataType.FLOAT
+        
+        if value.startswith("'") and value.endswith("'"):
+            return value.strip("'\""), DataType.VARCHAR
+        
+        validate_column_in_schemas(schemas, value)
+        column_type = get_column_type(schemas, value)
+        return value, column_type
+    
     def _parse_value_and_type(self, value: str, schemas: List[TableSchema], row: Dict[str, Any]) -> tuple[Any, DataType]:
         if value.isdigit():
             return int(value), DataType.INTEGER
@@ -60,6 +97,9 @@ class ComplexCondition(ConditionNode):
         self.op = op.upper()
         self.children = children
 
+    def check_valid(self):
+        raise NotImplementedError("ComplexCondition check is not supported")
+    
     def evaluate(self, row: Dict[str, Any]) -> bool:
         if self.op == 'AND':
             return all(child.evaluate(row) for child in self.children)
