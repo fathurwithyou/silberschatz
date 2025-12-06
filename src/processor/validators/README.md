@@ -98,7 +98,7 @@
 ```bnf
 <expression> ::= <term> { ( AND | OR ) <term> }
 
-<term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> | LIKE <factor> ]
+<term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> ]
 
 <factor> ::= IDENTIFIER [ '.' IDENTIFIER ] | STRING_LITERAL | NUMBER_LITERAL |
             NULL | '(' <expression> ')' | '*'

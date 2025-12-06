@@ -67,7 +67,6 @@ class TokenType(Enum):
     GREATER_THAN = ">"
     LESS_EQUAL = "<="
     GREATER_EQUAL = ">="
-    LIKE = "LIKE"
     
     # Punctuation
     COMMA = ","
@@ -129,7 +128,6 @@ class SQLLexer:
         'NULL': TokenType.NULL,
         'ASC': TokenType.ASC,
         'DESC': TokenType.DESC,
-        'LIKE': TokenType.LIKE,
         'PRIMARY': TokenType.PRIMARY,
         'KEY': TokenType.KEY,
         'REFERENCES': TokenType.REFERENCES,
