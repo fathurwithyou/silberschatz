@@ -63,6 +63,7 @@ class DatabaseClient:
             if self.transaction_active:
                 raise ValueError("Transaction already active")
             
+            self.transaction_queries = [query]
             self.transaction_active = True
             return True
         
@@ -70,6 +71,7 @@ class DatabaseClient:
             if not self.transaction_active:
                 raise ValueError("No active transaction to commit")
             
+            self.transaction_queries.append(query)
             self.send_queries(self.transaction_queries)
             self.transaction_active = False
             self.transaction_queries = []
@@ -79,8 +81,11 @@ class DatabaseClient:
             if not self.transaction_active:
                 raise ValueError("No active transaction to abort")
             
-            self.transaction_active = False
+            # self.transaction_queries.append(query)
+            # self.send_queries(self.transaction_queries)
             self.transaction_queries = []
+            self.transaction_active = False
+            
             return True
         
         elif self.transaction_active:

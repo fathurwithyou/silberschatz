@@ -68,8 +68,14 @@ class QueryProcessor(IQueryProcessor):
             error_msg = f"{validated_query.error_message}\n"
             if validated_query.error_position:
                 line, col = validated_query.error_position
-                error_msg += f"LINE {line}: {query}\n"
-                if query:
+                query_lines = query.splitlines()
+                if 0 < line <= len(query_lines):
+                    error_line = query_lines[line - 1]
+                    error_msg += f"LINE {line}: {error_line}\n"
+                    pointer = ' ' * (col + 6) + '^'
+                    error_msg += pointer
+                else:
+                    error_msg += f"LINE {line}: {query}\n"
                     pointer = ' ' * (col + 6) + '^'
                     error_msg += pointer
             raise SyntaxError(f"{error_msg}")
