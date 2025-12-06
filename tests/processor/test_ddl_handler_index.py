@@ -401,12 +401,12 @@ def test_multiple_tables_with_indexes():
 
     try:
         # Create first table and index
-        processor.execute_query("CREATE TABLE users (id INTEGER, name VARCHAR(50))")
+        processor.execute_query("CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(50))")
         processor.execute_query("INSERT INTO users VALUES (1, 'Alice')")
         processor.execute_query("CREATE INDEX ON users(name)")
         
         # Create second table and index
-        processor.execute_query("CREATE TABLE products (id INTEGER, title VARCHAR(50))")
+        processor.execute_query("CREATE TABLE products (id INTEGER PRIMARY KEY, title VARCHAR(50))")
         processor.execute_query("INSERT INTO products VALUES (1, 'Laptop')")
         processor.execute_query("CREATE INDEX ON products(title)")
         

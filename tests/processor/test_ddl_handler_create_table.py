@@ -63,7 +63,7 @@ def test_create_table_basic():
 
     try:
         result = processor.execute_query(
-            "CREATE TABLE users (id INTEGER, name VARCHAR(50), age INTEGER)"
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(50), age INTEGER)"
         )
 
         assert isinstance(result, ExecutionResult)
@@ -174,7 +174,7 @@ def test_create_table_with_multiple_data_types():
 
     try:
         result = processor.execute_query(
-            "CREATE TABLE mixed_types (id INTEGER, name VARCHAR(50), code CHAR(10), score FLOAT)"
+            "CREATE TABLE mixed_types (id INTEGER PRIMARY KEY, name VARCHAR(50), code CHAR(10), score FLOAT)"
         )
 
         assert isinstance(result, ExecutionResult)
@@ -201,11 +201,11 @@ def test_create_table_duplicate_fails():
 
     try:
         # Create first table
-        processor.execute_query("CREATE TABLE users (id INTEGER)")
+        processor.execute_query("CREATE TABLE users (id INTEGER PRIMARY KEY)")
         
         # Attempt to create duplicate should fail
         with pytest.raises(ValueError) as excinfo:
-            processor.execute_query("CREATE TABLE users (name VARCHAR(50))")
+            processor.execute_query("CREATE TABLE users (name VARCHAR(50) PRIMARY KEY NOT NULL)")
         
         assert "already exists" in str(excinfo.value)
 
@@ -220,7 +220,7 @@ def test_create_table_duplicate_column_names_fails():
 
     try:
         with pytest.raises(ValueError) as excinfo:
-            processor.execute_query("CREATE TABLE users (id INTEGER, id VARCHAR(50))")
+            processor.execute_query("CREATE TABLE users (id INTEGER PRIMARY KEY, id VARCHAR(50))")
         
         assert "duplicate" in str(excinfo.value).lower()
 
@@ -236,7 +236,7 @@ def test_create_table_invalid_foreign_key_table_fails():
     try:
         with pytest.raises(ValueError) as excinfo:
             processor.execute_query(
-                "CREATE TABLE employees (id INTEGER, dept_id INTEGER REFERENCES departments(id))"
+                "CREATE TABLE employees (id INTEGER PRIMARY KEY, dept_id INTEGER REFERENCES departments(id))"
             )
         
         assert "does not exist" in str(excinfo.value)
@@ -253,7 +253,7 @@ def test_create_table_invalid_foreign_key_column_fails():
     try:
         with pytest.raises(ValueError) as excinfo:
             processor.execute_query(
-                "CREATE TABLE employees (id INTEGER, dept_id INTEGER REFERENCES departments(nonexistent))"
+                "CREATE TABLE employees (id INTEGER PRIMARY KEY, dept_id INTEGER REFERENCES departments(nonexistent))"
             )
         
         assert "does not exist" in str(excinfo.value)
@@ -269,7 +269,7 @@ def test_create_table_invalid_data_type_fails():
 
     try:
         with pytest.raises(SyntaxError) as excinfo:
-            processor.execute_query("CREATE TABLE users (id BIGINT)")
+            processor.execute_query("CREATE TABLE users (id BIGINT PRIMARY KEY)")
         
         assert "syntax error" in str(excinfo.value).lower()
 
