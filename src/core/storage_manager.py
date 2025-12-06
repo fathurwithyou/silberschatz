@@ -70,3 +70,7 @@ class IStorageManager(ABC):
     @abstractmethod
     def list_tables(self) -> List[str]:
         raise NotImplementedError
+    
+    @abstractmethod
+    def update_table_schema(self, schema: TableSchema) -> None:
+        raise NotImplementedError
