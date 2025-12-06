@@ -178,6 +178,11 @@ def mock_storage_manager(statistics):
         def drop_table(self, table_name: str) -> None: raise NotImplementedError
         def get_table_schema(self, table_name: str) -> Optional[TableSchema]: return None
         def list_tables(self) -> List[str]: return []
+        def read_buffer(self, data_retrieval: DataRetrieval) -> Rows: raise NotImplementedError
+        def write_buffer(self, data_write: DataWrite) -> int: raise NotImplementedError
+        def delete_buffer(self, data_deletion: DataDeletion) -> int: raise NotImplementedError
+        def flush_buffer(self, table_name: Optional[str] = None) -> None: pass
+        def get_buffer_stats(self) -> dict: return {}
 
     return MockStorageManager()
 
