@@ -1,7 +1,8 @@
 from typing import Dict, Any, List
 from src.core import IConcurrencyControlManager, IStorageManager, IFailureRecoveryManager
 from src.core.models import (
-    DataWrite, TableSchema, DataType, Rows, LogRecord, LogRecordType, Action
+    DataWrite, TableSchema, DataType, Rows, LogRecord, LogRecordType, Action,
+    Condition, ComparisonOperator, DataRetrieval
 )
 from ..exceptions import AbortError
 from ..utils.utils import check_referential_integrity
@@ -29,6 +30,16 @@ class InsertOperator:
         if not validate.allowed:
             raise AbortError(tx_id, table_name, Action.WRITE, 
                            f"Write access denied by concurrency control manager")
+
+        pks = [col.name for col in schema.columns if col.primary_key]
+        check_duplicates = self.storage_manager.read_buffer(DataRetrieval(
+            table_name=table_name,
+            columns=pks,
+            conditions=[Condition(pk, ComparisonOperator.EQ, parsed_row.get(pk)) for pk in pks],
+            limit=1
+        ))
+        if check_duplicates.rows_count > 0:
+            raise ValueError(f"INSERT causes PK conflict on '{pks}' with values {[parsed_row.get(pk) for pk in pks]}")
 
         log_record = LogRecord(
             log_type=LogRecordType.CHANGE,
