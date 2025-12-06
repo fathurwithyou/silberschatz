@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
-from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType, LogRecord, LogRecordType
+from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType, LogRecord, LogRecordType, RecoverCriteria
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -14,6 +16,9 @@ class TCLHandler:
         
     def handle(self, query: ParsedQuery) -> ExecutionResult:
         if query.tree.type == QueryNodeType.BEGIN_TRANSACTION:
+            if self.processor.transaction_id is not None:
+                raise Exception("A transaction is already active.")
+            
             self.processor.transaction_id = self.processor.ccm.begin_transaction()
             
             self.processor.frm.write_log(LogRecord(
@@ -54,5 +59,30 @@ class TCLHandler:
                                    timestamp=datetime.now(), 
                                    query=query.query)
             
+        elif query.tree.type == QueryNodeType.ABORT:
+            tx_id = self.processor.transaction_id
+            if not tx_id:
+                raise Exception("No active transaction to abort.")
+            
+            self.processor.frm.write_log(LogRecord(
+                log_type=LogRecordType.ABORT,
+                transaction_id=tx_id,
+                item_name=None,
+                old_value=None,
+                new_value=None,
+                active_transactions=None
+            ))
+            self.processor.ccm.end_transaction(tx_id)
+            
+            recovery_criteria = RecoverCriteria.from_transaction(tx_id)
+            self.processor.frm.recover(recovery_criteria)
+            
+            self.processor.transaction_id = None
+            
+            return ExecutionResult(transaction_id=tx_id, 
+                                   message="ABORT successful.", 
+                                   data=None, 
+                                   timestamp=datetime.now(), 
+                                   query=query.query)
         
         raise SyntaxError("Unsupported TCL operation.")

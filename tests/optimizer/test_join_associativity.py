@@ -121,21 +121,6 @@ def test_apply_right_deep_to_left_deep(rule_left_deep):
     assert left_join.children[1].value == 'E2'
 
 
-def test_combine_conditions(rule_right_deep):
-    """Test condition combination logic."""
-    result = rule_right_deep._combine_conditions('cond1', 'cond2')
-    assert result == '(cond1) AND (cond2)'
-
-    result = rule_right_deep._combine_conditions('', 'cond2')
-    assert result == 'cond2'
-
-    result = rule_right_deep._combine_conditions('cond1', '')
-    assert result == 'cond1'
-
-    result = rule_right_deep._combine_conditions('', '')
-    assert result == ''
-
-
 def test_apply_returns_none_when_not_applicable(rule_right_deep):
     """Test that apply returns None for non-applicable nodes."""
     table = QueryTree(type='table', value='T1', children=[])

@@ -1,6 +1,7 @@
 import socket
 import argparse
 from utils.network import send_string, recv_string
+from typing import List
 
 
 class DatabaseClient:
@@ -9,6 +10,8 @@ class DatabaseClient:
         self.port = port
         self.socket = None
         self.saved_queries = ""
+        self.transaction_queries = []
+        self.transaction_active = False
         
     def connect(self) -> bool:
         """Connect to the database server."""
@@ -21,11 +24,21 @@ class DatabaseClient:
     
     def disconnect(self):
         """Disconnect from the server."""
+        self.send_query("ABORT")
         if self.socket:
             try:
                 self.socket.close()
             except:
                 pass
+            
+    def send_queries(self, queries: List[str]):
+        if not queries:
+            return
+        
+        for part in queries:
+            response = self.send_query(part)
+            print(response)
+            print()
     
     def send_query(self, query: str) -> str:
         """Send a single query and return the response."""
@@ -35,9 +48,43 @@ class DatabaseClient:
         try:
             send_string(self.socket, query.strip())
             response = recv_string(self.socket)
-            return response if response else "No response from server."
+            return response
         except Exception as e:
             raise ConnectionError(f"Communication error: {e}")
+        
+    def _handle_transaction(self, query: str) -> bool:
+        """Handle transaction commands locally."""
+        query = query.strip().upper()
+        
+        if query == "BEGIN TRANSACTION":
+            if self.transaction_active:
+                raise ValueError("Transaction already active")
+            
+            self.transaction_active = True
+            return True
+        
+        elif query == "COMMIT":
+            if not self.transaction_active:
+                raise ValueError("No active transaction to commit")
+            
+            self.send_queries(self.transaction_queries)
+            self.transaction_active = False
+            self.transaction_queries = []
+            return True
+        
+        elif query == "ABORT":
+            if not self.transaction_active:
+                raise ValueError("No active transaction to abort")
+            
+            self.transaction_active = False
+            self.transaction_queries = []
+            return True
+        
+        elif self.transaction_active:
+            self.transaction_queries.append(query)
+            return True
+        
+        return False
     
     def handle_meta_command(self, query: str) -> bool:
         query = query.strip()
@@ -76,14 +123,19 @@ class DatabaseClient:
         print("For SQL help, type your SQL commands followed by semicolon.")
         print()
     
-    def process_input(self, query: str) -> list:
+    def process_input(self, query: str) -> List[str]:
         """Process user input and return list of queries to execute."""
+        query = query.strip()
+        
         if ';' not in query:
             self.saved_queries += query + "\n"
             return []
         
         queries = [q.strip() for q in query.split(';') if q.strip()]
-        if len(queries) == 0:
+        
+        if query.index(';') == 0:
+            queries = [self.saved_queries] + queries
+        elif len(queries) == 0:
             queries = [self.saved_queries]
         else:
             queries[0] = self.saved_queries + queries[0]
@@ -107,7 +159,7 @@ class DatabaseClient:
             while True:
                 query = input("SQL> ").strip()
                 
-                if query.lower() in ['quit', 'exit', '']:
+                if query.lower() in ['quit', 'exit']:
                     print("Disconnecting...")
                     break
                 
@@ -115,7 +167,7 @@ class DatabaseClient:
                 if query.startswith('\\'):
                     if self.handle_meta_command(query):
                         continue
-                
+                    
                 queries_to_execute = self.process_input(query)
                 
                 if not queries_to_execute:
@@ -124,9 +176,17 @@ class DatabaseClient:
                 stop = False
                 for part in queries_to_execute:
                     try:
+                        if self._handle_transaction(part):
+                            print()
+                            continue
+                        
                         response = self.send_query(part)
                         print(response)
                         print()
+                    
+                    except ValueError as ve:
+                        print(f"Transaction error: {ve}\n")
+                    
                     except ConnectionError as e:
                         print(f"Communication error: {e}")
                         stop = True

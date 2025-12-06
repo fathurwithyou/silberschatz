@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 from src.core.models import ExecutionResult, ParsedQuery, QueryNodeType, LogRecord, LogRecordType, RecoverCriteria
 from datetime import datetime
@@ -67,7 +69,9 @@ class DMLHandler:
             if query.tree.type == QueryNodeType.UPDATE:
                 result.message = "update successful"
             elif query.tree.type == QueryNodeType.DELETE:
-                result.message = "delete successful"            
+                result.message = "delete successful"
+            elif query.tree.type == QueryNodeType.INSERT:
+                result.message = "insert successful"        
             # self.processor.frm.write_log(result)
             
             if is_implicit:
@@ -81,6 +85,7 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Commit
+                self.processor.transaction_id = None
                 
             return result
 
@@ -96,6 +101,7 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Abort
+                self.processor.transaction_id = None
             
             raise
             
@@ -111,5 +117,6 @@ class DMLHandler:
                 ))
                 
                 self.processor.ccm.end_transaction(tx_id) # Abort
+                self.processor.transaction_id = None
             
             raise e

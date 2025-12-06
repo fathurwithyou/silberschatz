@@ -13,6 +13,16 @@ from src.storage.storage_manager import StorageManager
 from src.concurrency.concurrency_manager import ConcurrencyControlManager
 
 
+def _make_mock_ccm():
+    from unittest.mock import Mock
+    from src.core.models.response import Response
+    
+    mock_ccm = Mock()
+    mock_ccm.validate_object.return_value = Response(allowed=True, transaction_id=1)
+    mock_ccm.get_active_transactions.return_value = (None, [1, 2, 3])
+    return mock_ccm
+
+
 def cleanup_test_data():
     """Clean up test data directory."""
     test_dir = "src/data_test"
@@ -113,7 +123,7 @@ def setup_empty_table():
 def test_scan_basic_table():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -134,7 +144,7 @@ def test_scan_basic_table():
 def test_scan_table_with_alias():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -152,7 +162,7 @@ def test_scan_table_with_alias():
 def test_scan_table_not_found():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -171,7 +181,7 @@ def test_scan_table_not_found():
 def test_scan_empty_table():
     cleanup_test_data()
     storage_manager = setup_empty_table()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -189,7 +199,7 @@ def test_scan_empty_table():
 def test_parse_table_name_and_alias():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -213,7 +223,7 @@ def test_parse_table_name_and_alias():
 def test_transform_rows():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -248,7 +258,7 @@ def test_transform_rows():
 def test_scan_with_multiple_columns():
     cleanup_test_data()
     storage_manager = setup_employees_table()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)
@@ -274,7 +284,7 @@ def test_scan_with_multiple_columns():
 def test_scan_integer_conversion():
     cleanup_test_data()
     storage_manager = setup_test_storage()
-    ccm = ConcurrencyControlManager()
+    ccm = _make_mock_ccm()
     
     try:
         operator = ScanOperator(ccm, storage_manager)

@@ -24,9 +24,12 @@ class TokenType(Enum):
     BEGIN = "BEGIN"
     TRANSACTION = "TRANSACTION"
     COMMIT = "COMMIT"
+    ABORT = "ABORT"
     CREATE = "CREATE"
     DROP = "DROP"
     TABLE = "TABLE"
+    CASCADE = "CASCADE"
+    RESTRICT = "RESTRICT"
     AS = "AS"
     INTO = "INTO"
     VALUES = "VALUES"
@@ -37,6 +40,18 @@ class TokenType(Enum):
     NULL = "NULL"
     ASC = "ASC"
     DESC = "DESC"
+    PRIMARY = "PRIMARY"
+    KEY = "KEY"
+    REFERENCES = "REFERENCES"
+    INTEGER = "INTEGER"
+    VARCHAR = "VARCHAR"
+    CHAR = "CHAR"
+    FLOAT = "FLOAT"
+    INT = "INT"
+    
+    # Foreign key actions
+    NO = "NO"
+    ACTION = "ACTION"
     
     # Identifiers and literals
     IDENTIFIER = "IDENTIFIER"
@@ -97,8 +112,11 @@ class SQLLexer:
         'TRANSACTION': TokenType.TRANSACTION,
         'COMMIT': TokenType.COMMIT,
         'CREATE': TokenType.CREATE,
+        'ABORT': TokenType.ABORT,
         'DROP': TokenType.DROP,
         'TABLE': TokenType.TABLE,
+        'CASCADE': TokenType.CASCADE,
+        'RESTRICT': TokenType.RESTRICT,
         'AS': TokenType.AS,
         'INTO': TokenType.INTO,
         'VALUES': TokenType.VALUES,
@@ -110,6 +128,16 @@ class SQLLexer:
         'ASC': TokenType.ASC,
         'DESC': TokenType.DESC,
         'LIKE': TokenType.LIKE,
+        'PRIMARY': TokenType.PRIMARY,
+        'KEY': TokenType.KEY,
+        'REFERENCES': TokenType.REFERENCES,
+        'INTEGER': TokenType.INTEGER,
+        'VARCHAR': TokenType.VARCHAR,
+        'CHAR': TokenType.CHAR,
+        'FLOAT': TokenType.FLOAT,
+        'INT': TokenType.INT,
+        'NO': TokenType.NO,
+        'ACTION': TokenType.ACTION,
     }
     
     # Operator patterns
