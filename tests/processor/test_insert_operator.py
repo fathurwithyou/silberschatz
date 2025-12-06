@@ -98,7 +98,7 @@ def test_insert_with_all_columns_specified():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
 
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(id, name, salary, department) (1, 'John Doe', 50000, 'Engineering')"
     result = operator.execute("employees", values_str, tx_id=1)
@@ -108,8 +108,8 @@ def test_insert_with_all_columns_specified():
     assert result.schema == []
     assert result.data == []
     
-    storage.write_block.assert_called_once()
-    write_call = storage.write_block.call_args[0][0]
+    storage.write_buffer.assert_called_once()
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.table_name == "employees"
     assert write_call.data == {
         "id": 1,
@@ -128,7 +128,7 @@ def test_insert_with_partial_columns_specified():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
 
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(id, name) (2, 'Jane Smith')"
     result = operator.execute("users", values_str, tx_id=1)
@@ -136,7 +136,7 @@ def test_insert_with_partial_columns_specified():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.table_name == "users"
     assert write_call.data == {
         "id": 2,
@@ -153,7 +153,7 @@ def test_insert_without_columns_specified():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
 
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(3, 'Bob Johnson', 'bob@email.com', 30)"
     result = operator.execute("users", values_str, tx_id=1)
@@ -161,7 +161,7 @@ def test_insert_without_columns_specified():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.table_name == "users"
     assert write_call.data == {
         "id": 3,
@@ -178,7 +178,7 @@ def test_insert_with_quoted_values():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
     
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(4, 'Alice Brown', 'alice@test.com', 25)"
     result = operator.execute("users", values_str, tx_id=1)
@@ -186,11 +186,11 @@ def test_insert_with_quoted_values():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["name"] == "Alice Brown"
     assert write_call.data["email"] == "alice@test.com"
     
-    storage.write_block.reset_mock()
+    storage.write_buffer.reset_mock()
 
     values_str = '(5, "Charlie Wilson", "charlie@test.com", 35)'
     result = operator.execute("users", values_str, tx_id=1)
@@ -198,7 +198,7 @@ def test_insert_with_quoted_values():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["name"] == "Charlie Wilson"
     assert write_call.data["email"] == "charlie@test.com"
 
@@ -210,7 +210,7 @@ def test_insert_with_null_values():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
 
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(6, 'David Lee', NULL, NULL)"
     result = operator.execute("users", values_str, tx_id=1)
@@ -218,7 +218,7 @@ def test_insert_with_null_values():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data == {
         "id": 6,
         "name": "David Lee",
@@ -234,7 +234,7 @@ def test_insert_with_missing_values_for_nullable_columns():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
     
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(7, 'Eva Garcia')"
     result = operator.execute("users", values_str, tx_id=1)
@@ -242,7 +242,7 @@ def test_insert_with_missing_values_for_nullable_columns():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["id"] == 7
     assert write_call.data["name"] == "Eva Garcia"
     assert write_call.data["email"] is None
@@ -256,7 +256,7 @@ def test_insert_parse_value_list_with_commas_in_quotes():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
     
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(8, 'Smith, John Jr.', 'john.smith@email.com', 40)"
     result = operator.execute("users", values_str, tx_id=1)
@@ -264,7 +264,7 @@ def test_insert_parse_value_list_with_commas_in_quotes():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["name"] == "Smith, John Jr."
     assert write_call.data["email"] == "john.smith@email.com"
 
@@ -276,7 +276,7 @@ def test_insert_parse_value_list_with_escaped_quotes():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
     
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(9, 'O''Connor', 'oconnor@email.com', 28)"
     result = operator.execute("users", values_str, tx_id=1)
@@ -284,7 +284,7 @@ def test_insert_parse_value_list_with_escaped_quotes():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["name"] == "O''Connor"
 
 
@@ -295,7 +295,7 @@ def test_insert_type_conversion():
     frm = _make_mock_frm()
     operator = InsertOperator(ccm, storage, frm)
     
-    storage.write_block = Mock(return_value=1)
+    storage.write_buffer = Mock(return_value=1)
 
     values_str = "(10, 'Test User', 'test@email.com', '42')"
     result = operator.execute("users", values_str, tx_id=1)
@@ -303,7 +303,7 @@ def test_insert_type_conversion():
     assert isinstance(result, Rows)
     assert result.rows_count == 1
     
-    write_call = storage.write_block.call_args[0][0]
+    write_call = storage.write_buffer.call_args[0][0]
     assert write_call.data["age"] == 42
     assert isinstance(write_call.data["age"], int)
 

@@ -24,7 +24,7 @@ class ScanOperator:
             table_name=table_name,
             columns=['*']
         )
-        rows = self.storage_manager.read_block(data_retrieval)
+        rows = self.storage_manager.read_buffer(data_retrieval)
         rows.schema = [table_schema]
         rows.data = self._transform_rows(rows.data, table_alias)
         

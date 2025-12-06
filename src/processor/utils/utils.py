@@ -90,7 +90,7 @@ def check_referential_integrity(value: Any, fk_column: ColumnDefinition, sm: ISt
         columns=[fk_column.foreign_key.referenced_column],
         conditions=[Condition(column=fk_column.foreign_key.referenced_column, operator=ComparisonOperator.EQ, value=value)]
     )
-    result = sm.read_block(data_retrieval)
+    result = sm.read_buffer(data_retrieval)
     
     return result.rows_count > 0
     

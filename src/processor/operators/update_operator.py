@@ -68,7 +68,7 @@ class UpdateOperator:
                 conditions=[Condition(pk, ComparisonOperator.EQ, original_pk_value)]
             )
 
-            updated_count += self.storage_manager.write_block(data_write)
+            updated_count += self.storage_manager.write_buffer(data_write)
 
         return Rows(schema=[], 
                     data=[], 
@@ -185,7 +185,7 @@ class UpdateOperator:
                         columns=[col.name],
                         conditions=[Condition(column=col.name, operator=ComparisonOperator.EQ, value=old_value)]
                     )
-                    result = self.storage_manager.read_block(data_retrieval)
+                    result = self.storage_manager.read_buffer(data_retrieval)
                     
                     for row in result.data:
                         updated_row = row.copy()
@@ -211,7 +211,7 @@ class UpdateOperator:
                             is_update=True,
                             conditions=[Condition(column=col.name, operator=ComparisonOperator.EQ, value=old_value)]
                         )
-                        self.storage_manager.write_block(data_write)
+                        self.storage_manager.write_buffer(data_write)
                 
                 elif col.foreign_key.on_update == ForeignKeyAction.SET_NULL:
                     data_retrieval = DataRetrieval(
@@ -219,7 +219,7 @@ class UpdateOperator:
                         columns=[col.name],
                         conditions=[Condition(column=col.name, operator=ComparisonOperator.EQ, value=old_value)]
                     )
-                    result = self.storage_manager.read_block(data_retrieval)
+                    result = self.storage_manager.read_buffer(data_retrieval)
                     
                     
                     for row in result.data:
@@ -246,14 +246,14 @@ class UpdateOperator:
                             is_update=True,
                             conditions=[Condition(column=col.name, operator=ComparisonOperator.EQ, value=old_value)]
                         )
-                        self.storage_manager.write_block(data_write)
+                        self.storage_manager.write_buffer(data_write)
                 elif col.foreign_key.on_update == ForeignKeyAction.RESTRICT or col.foreign_key.on_update == ForeignKeyAction.NO_ACTION:
                     data_retrieval = DataRetrieval(
                         table_name=table,
                         columns=[col.name],
                         conditions=[Condition(column=col.name, operator=ComparisonOperator.EQ, value=old_value)]
                     )
-                    result = self.storage_manager.read_block(data_retrieval)
+                    result = self.storage_manager.read_buffer(data_retrieval)
                     
                     if result.rows_count > 0:
                         raise ValueError(f"Referential integrity violation: cannot update value '{old_value}' in column '{column.name}' of table '{table_name}' because it is referenced in table '{table}'")
@@ -267,7 +267,7 @@ class UpdateOperator:
             limit=1
         )
         
-        result = self.storage_manager.read_block(data_retrieval)
+        result = self.storage_manager.read_buffer(data_retrieval)
         
         return result.rows_count > 0
     

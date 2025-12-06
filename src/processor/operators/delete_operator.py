@@ -109,7 +109,7 @@ class DeleteOperator:
                             Condition(column=col.name, operator=ComparisonOperator.EQ, value=pk_value)
                         ]
                     )
-                    rows = self.storage_manager.read_block(retrieval)
+                    rows = self.storage_manager.read_buffer(retrieval)
                     if rows.rows_count > 0:
                         raise ValueError(f"Integrity Error: Cannot delete '{table_name}' (id={pk_value}) because it is still referenced by table '{t}'.")
 
@@ -122,7 +122,7 @@ class DeleteOperator:
                             Condition(column=col.name, operator=ComparisonOperator.EQ, value=pk_value)
                         ]
                     )
-                    child_rows = self.storage_manager.read_block(retrieval)
+                    child_rows = self.storage_manager.read_buffer(retrieval)
                     
                     if child_rows.rows_count > 0:
                         if not child_rows.schema:
@@ -138,7 +138,7 @@ class DeleteOperator:
                             Condition(column=col.name, operator=ComparisonOperator.EQ, value=pk_value)
                         ]
                     )
-                    rows = self.storage_manager.read_block(retrieval)
+                    rows = self.storage_manager.read_buffer(retrieval)
                     
                     if rows.rows_count > 0:
                         if child_pk is None:
@@ -190,4 +190,4 @@ class DeleteOperator:
                                     )
                                 ]
                             )
-                            self.storage_manager.write_block(data_write)
+                            self.storage_manager.write_buffer(data_write)

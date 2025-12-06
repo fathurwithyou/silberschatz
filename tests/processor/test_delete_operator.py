@@ -267,8 +267,8 @@ def test_delete_restrict_violation():
         return None
     storage.get_table_schema = Mock(side_effect=get_schema_side_effect)
 
-    # Mock read_block to return child row when checking dependencies
-    storage.read_block = Mock(return_value=Rows(
+    # Mock read_buffer to return child row when checking dependencies
+    storage.read_buffer = Mock(return_value=Rows(
         data=[{"dependents.id": 100, "dependents.emp_id": 1}], 
         rows_count=1, 
         schema=[child_schema]
@@ -304,7 +304,7 @@ def test_delete_set_null_action():
 
     storage.list_tables = Mock(return_value=["teams"])
     storage.delete_block = Mock(return_value=1)
-    storage.write_block = Mock(return_value=1) # Mock write block
+    storage.write_buffer = Mock(return_value=1) # Mock write block
     
     def get_schema_side_effect(table_name):
         if table_name == "employees": return parent_schema
@@ -312,9 +312,9 @@ def test_delete_set_null_action():
         return None
     storage.get_table_schema = Mock(side_effect=get_schema_side_effect)
 
-    # Mock read_block to return child row that needs update
+    # Mock read_buffer to return child row that needs update
     child_row = {"teams.id": 500, "teams.lead_id": 1}
-    storage.read_block = Mock(return_value=Rows(
+    storage.read_buffer = Mock(return_value=Rows(
         data=[child_row], rows_count=1, schema=[child_schema]
     ))
 
@@ -324,8 +324,8 @@ def test_delete_set_null_action():
     operator.execute(rows, tx_id=1)
 
     # Assert Write Block is Called
-    storage.write_block.assert_called()
-    call_args = storage.write_block.call_args[0][0]
+    storage.write_buffer.assert_called()
+    call_args = storage.write_buffer.call_args[0][0]
     
     assert call_args.table_name == "teams"
     assert call_args.is_update is True
@@ -366,8 +366,8 @@ def test_delete_cascade_action():
         return None
     storage.get_table_schema = Mock(side_effect=get_schema_side_effect)
 
-    # Mock read_block to return child rows
-    storage.read_block = Mock(return_value=Rows(
+    # Mock read_buffer to return child rows
+    storage.read_buffer = Mock(return_value=Rows(
         data=[{"salaries.id": 99, "salaries.emp_id": 1}], 
         rows_count=1, 
         schema=[child_schema]
@@ -379,7 +379,7 @@ def test_delete_cascade_action():
     operator.execute(rows, tx_id=1)
 
     found_cascade_call = False
-    for call in storage.read_block.call_args_list:
+    for call in storage.read_buffer.call_args_list:
         retrieval = call[0][0]
         if retrieval.table_name == "salaries" and \
            retrieval.conditions[0].column == "emp_id" and \

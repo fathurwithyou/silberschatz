@@ -47,7 +47,7 @@ class InsertOperator:
             conditions=None
         )
 
-        inserted = self.storage_manager.write_block(data_write)
+        inserted = self.storage_manager.write_buffer(data_write)
 
         return Rows(schema=[], data=[], rows_count=inserted)
     
