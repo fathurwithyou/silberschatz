@@ -108,6 +108,9 @@ class QueryProcessor(IQueryProcessor):
             return self.scan_operator.execute(node.value, tx_id)
         
         elif node.type == QueryNodeType.SELECTION:
+            if self._check_index_selection(node):
+                return self.scan_operator.execute(node.children[0].value, tx_id, parent_node=node)
+            
             rows = self.execute(node.children[0], tx_id)
             return self.selection_operator.execute(rows, node.value)
         
@@ -162,7 +165,7 @@ class QueryProcessor(IQueryProcessor):
         Mengembalikan tipe query berdasarkan pohon query.
         """
         
-        ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
+        ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE, QueryNodeType.CREATE_INDEX, QueryNodeType.DROP_INDEX]
         tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT, QueryNodeType.ABORT]
         if query_tree.type in ddl_type:
             return QueryTypeEnum.DDL
@@ -326,3 +329,17 @@ class QueryProcessor(IQueryProcessor):
                 data=None,
                 query=f'\\d {table_name}'
             )
+
+    def _check_index_selection(self, node: QueryTree):
+        # cek apakah kondisi cukup sederhana
+        # yang pake index: 
+        # "column = value", "column {< | <= | > | >=} value"
+        if node.children[0].type != QueryNodeType.TABLE:
+            return False
+        
+        cond_str = node.value.strip()
+        simple_pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*\s*(=|<|<=|>|>=)\s*[\w\'"]+$'
+        if re.match(simple_pattern, cond_str):
+            return True
+        return False
+        

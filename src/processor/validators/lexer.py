@@ -48,6 +48,8 @@ class TokenType(Enum):
     CHAR = "CHAR"
     FLOAT = "FLOAT"
     INT = "INT"
+    INDEX = "INDEX"
+    USING = "USING"
     
     # Foreign key actions
     NO = "NO"
@@ -136,6 +138,8 @@ class SQLLexer:
         'CHAR': TokenType.CHAR,
         'FLOAT': TokenType.FLOAT,
         'INT': TokenType.INT,
+        'INDEX': TokenType.INDEX,
+        'USING': TokenType.USING,
         'NO': TokenType.NO,
         'ACTION': TokenType.ACTION,
     }

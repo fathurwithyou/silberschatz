@@ -285,9 +285,20 @@ class SQLParser:
     def _parse_create_statement(self) -> None:
         """
         <create_statement> ::= CREATE TABLE IDENTIFIER '(' <column_definition_list> ')'
+                             | CREATE INDEX ON IDENTIFIER '(' IDENTIFIER ')' [ USING IDENTIFIER ]
         <column_definition_list> ::= <column_definition> { ',' <column_definition> }
         """
         self._expect(TokenType.CREATE)
+        
+        if self._check(TokenType.INDEX):
+            self._parse_create_index()
+        elif self._check(TokenType.TABLE):
+            self._parse_create_table()
+        else:
+            raise ParseError("Expected TABLE or INDEX after CREATE", self.current_token)
+    
+    def _parse_create_table(self) -> None:
+        """Parse CREATE TABLE statement"""
         self._expect(TokenType.TABLE)
         self._expect(TokenType.IDENTIFIER)
         
@@ -300,10 +311,23 @@ class SQLParser:
             self._parse_column_definition()
         
         self._expect(TokenType.RIGHT_PAREN)
-
-        if self._check(TokenType.SEMICOLON):
-            self._advance()
     
+    def _parse_create_index(self) -> None:
+        """
+        Parse CREATE INDEX statement
+        <create_index> ::= CREATE INDEX ON IDENTIFIER '(' IDENTIFIER ')' [ USING IDENTIFIER ]
+        """
+        self._expect(TokenType.INDEX)
+        self._expect(TokenType.ON)
+        self._expect(TokenType.IDENTIFIER)  # table name
+        self._expect(TokenType.LEFT_PAREN)
+        self._expect(TokenType.IDENTIFIER)  # column name
+        self._expect(TokenType.RIGHT_PAREN)
+        
+        if self._check(TokenType.USING):
+            self._advance()
+            self._expect(TokenType.IDENTIFIER)
+        
     def _parse_column_definition(self) -> None:
         """
         <column_definition> ::= IDENTIFIER <data_type> [<column_constraints>]
@@ -400,13 +424,40 @@ class SQLParser:
     
     def _parse_drop_statement(self) -> None:
         """
-        <drop_statement> ::= DROP TABLE IDENTIFIER
+        <drop_statement> ::= DROP TABLE IDENTIFIER [ CASCADE | RESTRICT ]
+                           | DROP INDEX ON IDENTIFIER '(' IDENTIFIER ')'
         """
         self._expect(TokenType.DROP)
+        
+        # Check if it's DROP INDEX or DROP TABLE
+        if self._check(TokenType.INDEX):
+            self._parse_drop_index()
+        elif self._check(TokenType.TABLE):
+            self._parse_drop_table()
+        else:
+            raise ParseError("Expected TABLE or INDEX after DROP", self.current_token)
+    
+    def _parse_drop_table(self) -> None:
+        """Parse DROP TABLE statement"""
         self._expect(TokenType.TABLE)
         self._expect(TokenType.IDENTIFIER)
 
         if self._check(TokenType.CASCADE) or self._check(TokenType.RESTRICT):
+            self._advance()
+    
+    def _parse_drop_index(self) -> None:
+        """
+        Parse DROP INDEX statement
+        <drop_index> ::= DROP INDEX ON IDENTIFIER '(' IDENTIFIER ')'
+        """
+        self._expect(TokenType.INDEX)
+        self._expect(TokenType.ON)
+        self._expect(TokenType.IDENTIFIER)  # table name
+        self._expect(TokenType.LEFT_PAREN)
+        self._expect(TokenType.IDENTIFIER)  # column name
+        self._expect(TokenType.RIGHT_PAREN)
+        
+        if self._check(TokenType.SEMICOLON):
             self._advance()
     
     def _parse_begin_statement(self) -> None:
