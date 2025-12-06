@@ -200,6 +200,7 @@ def test_update_nonexistent_table_raises_error():
     mock_schema = Mock()
     mock_schema.table_name = "nope"
     mock_schema.primary_key = None  # This will trigger the ValueError
+    mock_schema.columns = []
     rows = Rows(data=[], rows_count=0, schema=[mock_schema])
 
     with pytest.raises(ValueError):

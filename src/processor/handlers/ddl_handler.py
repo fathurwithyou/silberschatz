@@ -122,9 +122,7 @@ class DDLHandler:
             seen_columns.add(col.name)
         
         if len(primary_key_columns) == 0:
-            raise ValueError(f"Table '{table_name}' must have one PRIMARY KEY column")
-        elif len(primary_key_columns) > 1:
-            raise ValueError(f"Only one PRIMARY KEY is supported per table '{table_name}'")
+            raise ValueError(f"Table '{table_name}' must have at least one PRIMARY KEY column")
         
         primary_key = primary_key_columns[0]
         

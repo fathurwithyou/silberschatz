@@ -28,9 +28,10 @@ class UpdateOperator:
 
         # ambil schema & PK
         schema = rows.schema[0]
-        pk = schema.primary_key
+        # pk = schema.primary_key
+        pks = [col.name for col in schema.columns if col.primary_key]
         
-        if pk is None:
+        if not pks:
             raise ValueError(f"Table '{table_name}' does not have a primary key.")
 
         # update per-row
@@ -43,11 +44,25 @@ class UpdateOperator:
                            f"Write access denied by concurrency control manager")
 
         for row in rows.data:
-            pk_with_table = f"{table_name}.{pk}"
-            original_pk_value = row.get(pk_with_table) or row.get(pk)
+            # pk_with_table = f"{table_name}.{pk}"
+            pk_with_table_list = [f"{table_name}.{pk}" for pk in pks]
+            # original_pk_value = row.get(pk_with_table) or row.get(pk)
+            original_pk_val = [row.get(pk_with_table) or row.get(pks[i]) for i, pk_with_table in enumerate(pk_with_table_list)]
             
             updated_row = self._apply_assignments(row, assignments, schema, tx_id)
             updated_row = self._transform_col_name(updated_row)
+            
+            
+            pk_conditions = [Condition(pk, ComparisonOperator.EQ, updated_row.get(pk)) for pk in pks]
+            pk_conditions.extend([Condition(pk, ComparisonOperator.NE, original_pk_val[i]) for i, pk in enumerate(pks)])
+            check = self.storage_manager.read_buffer(DataRetrieval(
+                table_name=table_name,
+                columns=pks,
+                conditions=pk_conditions,
+                limit=1
+            ))
+            if check.rows_count > 0:
+                raise ValueError(f"UPDATE causes PK conflict on '{pks}' with values {[updated_row.get(pk) for pk in pks]}")
             
             # Log ke Failure Recovery Manager
             log_record = LogRecord(
@@ -65,7 +80,7 @@ class UpdateOperator:
                 table_name=table_name,
                 data=updated_row,
                 is_update=True,
-                conditions=[Condition(pk, ComparisonOperator.EQ, original_pk_value)]
+                conditions=[Condition(pk, ComparisonOperator.EQ, original_pk_value) for pk, original_pk_value in zip(pks, original_pk_val)]
             )
 
             updated_count += self.storage_manager.write_buffer(data_write)
@@ -133,13 +148,14 @@ class UpdateOperator:
                 new_pk_value = updated[qualified_col]
                 old_pk_value = row.get(qualified_col)
                 
-                if new_pk_value != old_pk_value:
-                    if self._check_pk_conflict(table_name, pk_column, new_pk_value):
-                        raise ValueError(f"UPDATE causes PK conflict '{pk_column}'={new_pk_value}")
-                    
-                    self._apply_update_foreign_key_actions(
-                        old_pk_value, new_pk_value, table_name, column, tx_id
-                    )
+                # if new_pk_value != old_pk_value:
+                #     if self._check_pk_conflict(table_name, pk_column, new_pk_value):
+                #         raise ValueError(f"UPDATE causes PK conflict '{pk_column}'={new_pk_value}")
+            new_value = updated[qualified_col]
+            old_value = row.get(qualified_col)
+            self._apply_update_foreign_key_actions(
+                old_value, new_value, table_name, column, tx_id
+            )
         return updated
     
     def _apply_update_foreign_key_actions(self, old_value: Any, 
@@ -260,6 +276,13 @@ class UpdateOperator:
                 
     
     def _check_pk_conflict(self, table_name: str, pk_column: str, new_pk_value: Any) -> bool:
+        
+        schema = self.storage_manager.get_table_schema(table_name)
+        if schema:
+            pks = [col.name for col in schema.columns if col.primary_key]
+            if len(pks) > 1:
+                return True  # Composite PK, skip check here
+        
         data_retrieval = DataRetrieval(
             table_name=table_name,
             columns=[pk_column],
