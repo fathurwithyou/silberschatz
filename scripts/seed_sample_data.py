@@ -692,6 +692,10 @@ def main() -> None:
             continue
         seed_table(storage, payload)
 
+    # Flush all data from buffer pool to disk
+    storage.flush_buffer()
+    print("Flushed all data to disk.")
+
     print(
         f"Data directory '{args.data_dir}' seeded tables: {', '.join(tables_to_seed)}."
     )
