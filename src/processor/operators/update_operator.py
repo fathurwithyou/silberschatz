@@ -122,6 +122,9 @@ class UpdateOperator:
             if (updated[qualified_col] is None) and (not column.nullable):
                 raise ValueError(f"Column '{col}' cannot be set to NULL due to NOT NULL constraint.")
             
+            if (updated[qualified_col] is None) and column.primary_key:
+                raise ValueError(f"Column '{col}' cannot be set to NULL due to PRIMARY KEY constraint.")
+            
             if column.foreign_key is not None:
                 if not check_referential_integrity(updated[qualified_col], column, self.storage_manager):
                     raise ValueError(f"Referential integrity violation: value '{updated[qualified_col]}' for column '{col}' does not exist in referenced table '{column.foreign_key.referenced_table}'")
@@ -144,6 +147,24 @@ class UpdateOperator:
                                                 table_name: str, 
                                                 column: ColumnDefinition,
                                                 tx_id: int):
+        """
+        Apply foreign key actions for UPDATE.
+        old_value: nilai lama dari PK yang diupdate
+        new_value: nilai baru dari PK yang diupdate
+        table_name: nama tabel tempat PK diupdate
+        column: definisi kolom PK yang diupdate
+        tx_id: ID transaksi yang sedang berjalan
+        """
+        
+        if column.primary_key and new_value is None:
+            raise ValueError(f"Cannot set PRIMARY KEY column '{column.name}' to NULL")
+        if not column.nullable and new_value is None:
+            raise ValueError(f"Cannot set NOT NULL column '{column.name}' to NULL")
+        if column.primary_key:
+            if old_value != new_value:
+                if self._check_pk_conflict(table_name, column.name, new_value):
+                    raise ValueError(f"UPDATE causes PK conflict '{column.name}'={new_value}")
+        
         tables = self.storage_manager.list_tables()
         
         for table in tables:
@@ -169,6 +190,10 @@ class UpdateOperator:
                     for row in result.data:
                         updated_row = row.copy()
                         updated_row[col.name] = new_value
+                        
+                        self._apply_update_foreign_key_actions(
+                            row[col.name], new_value, table, col, tx_id
+                        )
                         
                         log_record = LogRecord(
                             log_type=LogRecordType.CHANGE,
@@ -200,6 +225,11 @@ class UpdateOperator:
                     for row in result.data:
                         updated_row = row.copy()
                         updated_row[col.name] = None
+                        
+                        self._apply_update_foreign_key_actions(
+                            row[col.name], None, table, col, tx_id
+                        )
+                        
                         log_record = LogRecord(
                                 log_type=LogRecordType.CHANGE,
                                 transaction_id=tx_id,

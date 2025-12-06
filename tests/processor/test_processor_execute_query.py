@@ -544,6 +544,17 @@ def setup_foreign_key_test_environment():
     return processor, storage_manager
 
 
+def setup_minimal_test_environment():
+    """Setup test environment without pre-creating any tables."""
+    storage_manager = StorageManager("data_test")
+    optimizer = QueryOptimizer(storage_manager=storage_manager)
+    ccm = ConcurrencyControlManager("Timestamp")
+    frm = FailureRecoveryManager()
+    
+    processor = QueryProcessor(optimizer, ccm, frm, storage_manager)
+    return processor, storage_manager
+
+
 def test_update_foreign_key_cascade():
     cleanup_test_data()
     processor, storage = setup_foreign_key_test_environment()
@@ -897,6 +908,307 @@ def test_update_foreign_key_null_values():
         cleanup_test_data()
 
 
+def test_update_foreign_key_recursive_cascade():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+        
+        processor.execute_query("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON UPDATE CASCADE)")
+        processor.execute_query("INSERT INTO teams (id, name, dept_id) VALUES (1, 'Backend', 1)")
+        processor.execute_query("INSERT INTO teams (id, name, dept_id) VALUES (2, 'Frontend', 1)")
+        
+        processor.execute_query("CREATE TABLE projects (id INT PRIMARY KEY, name VARCHAR(100), team_id INT REFERENCES teams(id) ON UPDATE CASCADE)")
+        processor.execute_query("INSERT INTO projects (id, name, team_id) VALUES (1, 'API', 1)")
+        processor.execute_query("INSERT INTO projects (id, name, team_id) VALUES (2, 'Mobile', 1)")
+        
+        processor.execute_query("CREATE TABLE tasks (id INT PRIMARY KEY, title VARCHAR(100), project_id INT REFERENCES projects(id) ON UPDATE CASCADE)")
+        processor.execute_query("INSERT INTO tasks (id, title, project_id) VALUES (1, 'Design', 1)")
+        processor.execute_query("INSERT INTO tasks (id, title, project_id) VALUES (2, 'Code', 1)")
+        
+        processor.execute_query("UPDATE departments SET id = 10 WHERE id = 1")
+        
+        teams_result = processor.execute_query("SELECT * FROM teams WHERE id = 1")
+        assert teams_result.data is not None
+        assert teams_result.data.data[0]["teams.dept_id"] == 10  
+        
+        projects_result = processor.execute_query("SELECT * FROM projects WHERE id = 1")
+        assert projects_result.data is not None
+        assert projects_result.data.data[0]["projects.team_id"] == 1  
+        
+        processor.execute_query("UPDATE teams SET id = 20 WHERE id = 1")
+        
+        projects_result = processor.execute_query("SELECT * FROM projects WHERE id = 1")
+        assert projects_result.data is not None
+        assert projects_result.data.data[0]["projects.team_id"] == 20  
+        
+        # Tasks should still reference projects.id=1 (project id didn't change)
+        tasks_result = processor.execute_query("SELECT * FROM tasks WHERE id = 1")
+        assert tasks_result.data is not None
+        assert tasks_result.data.data[0]["tasks.project_id"] == 1
+        
+        # Now update the project id to see cascade to tasks
+        processor.execute_query("UPDATE projects SET id = 30 WHERE id = 1")
+        
+        tasks_result = processor.execute_query("SELECT * FROM tasks WHERE id = 1")
+        assert tasks_result.data is not None
+        assert tasks_result.data.data[0]["tasks.project_id"] == 30
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_update_foreign_key_recursive_set_null():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        
+        processor.execute_query("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON UPDATE SET NULL)")
+        processor.execute_query("INSERT INTO teams (id, name, dept_id) VALUES (1, 'Backend', 1)")
+        
+        processor.execute_query("CREATE TABLE projects (id INT PRIMARY KEY, name VARCHAR(100), team_id INT REFERENCES teams(id) ON UPDATE SET NULL)")
+        processor.execute_query("INSERT INTO projects (id, name, team_id) VALUES (1, 'API', 1)")
+        
+        processor.execute_query("UPDATE departments SET id = 10 WHERE id = 1")
+        
+        teams_result = processor.execute_query("SELECT * FROM teams WHERE id = 1")
+        assert teams_result.data is not None
+        assert teams_result.data.data[0]["teams.dept_id"] is None
+        
+        # Update team ID - should set project's team_id to NULL
+        processor.execute_query("UPDATE teams SET id = 20 WHERE id = 1")
+        
+        projects_result = processor.execute_query("SELECT * FROM projects WHERE id = 1")
+        assert projects_result.data is not None
+        assert projects_result.data.data[0]["projects.team_id"] is None  # team_id should be NULL
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_cascade():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+        
+        processor.execute_query("CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE CASCADE)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (1, 'Alice', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (2, 'Bob', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (3, 'Charlie', 2)")
+        
+        # Delete department - should cascade delete employees
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        # Verify department is deleted
+        dept_result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert dept_result.data is not None
+        assert dept_result.data.rows_count == 0
+        
+        # Verify employees in dept 1 are deleted
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE dept_id = 1")
+        assert emp_result.data is not None
+        assert emp_result.data.rows_count == 0
+        
+        # Verify employee in dept 2 still exists
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE dept_id = 2")
+        assert emp_result.data is not None
+        assert emp_result.data.rows_count == 1
+        assert emp_result.data.data[0]["employees.name"] == "Charlie"
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_restrict():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+        
+        processor.execute_query("CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE RESTRICT)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (1, 'Alice', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (2, 'Bob', 2)")
+        
+        # Try to delete department with employees - should fail
+        try:
+            processor.execute_query("DELETE FROM departments WHERE id = 1")
+            assert False, "Should have raised an error due to RESTRICT"
+        except Exception as e:
+            assert "integrity error" in str(e).lower() or "foreign key constraint" in str(e).lower() or "restrict" in str(e).lower()
+        
+        # Verify department still exists
+        result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        
+        # Delete employee first, then department should work
+        processor.execute_query("DELETE FROM employees WHERE dept_id = 1")
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert result.data is not None
+        assert result.data.rows_count == 0
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_set_null():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+        
+        processor.execute_query("CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE SET NULL)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (1, 'Alice', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (2, 'Bob', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (3, 'Charlie', 2)")
+        
+        # Delete department - should set dept_id to NULL
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        # Verify department is deleted
+        dept_result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert dept_result.data is not None
+        assert dept_result.data.rows_count == 0
+        
+        # Verify employees' dept_id is set to NULL
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE id = 1")
+        assert emp_result.data is not None
+        assert emp_result.data.data[0]["employees.dept_id"] is None
+        
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE id = 2")
+        assert emp_result.data is not None
+        assert emp_result.data.data[0]["employees.dept_id"] is None
+        
+        # Verify employee in dept 2 still has dept_id
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE dept_id = 2")
+        assert emp_result.data is not None
+        assert emp_result.data.rows_count == 1
+        assert emp_result.data.data[0]["employees.dept_id"] == 2
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_no_action():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (2, 'Sales')")
+        
+        processor.execute_query("CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE NO ACTION)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (1, 'Alice', 1)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (2, 'Bob', 2)")
+        
+        # Try to delete department with employees - should fail
+        try:
+            processor.execute_query("DELETE FROM departments WHERE id = 1")
+            assert False, "Should have raised an error due to NO ACTION"
+        except Exception as e:
+            assert "integrity error" in str(e).lower() or "foreign key constraint" in str(e).lower() or "no action" in str(e).lower() or "restrict" in str(e).lower()
+        
+        # Verify department still exists
+        result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert result.data is not None
+        assert result.data.rows_count == 1
+        
+        # Delete employee first, then department should work
+        processor.execute_query("DELETE FROM employees WHERE dept_id = 1")
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert result.data is not None
+        assert result.data.rows_count == 0
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_mixed_actions():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        
+        processor.execute_query("CREATE TABLE employees (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE CASCADE)")
+        processor.execute_query("INSERT INTO employees (id, name, dept_id) VALUES (1, 'Alice', 1)")
+        
+        processor.execute_query("CREATE TABLE contractors (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE SET NULL)")
+        processor.execute_query("INSERT INTO contractors (id, name, dept_id) VALUES (1, 'Bob', 1)")
+        
+        # Delete department
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        # Verify employee is cascade deleted
+        emp_result = processor.execute_query("SELECT * FROM employees WHERE id = 1")
+        assert emp_result.data is not None
+        assert emp_result.data.rows_count == 0
+        
+        # Verify contractor's dept_id is set to NULL
+        contractor_result = processor.execute_query("SELECT * FROM contractors WHERE id = 1")
+        assert contractor_result.data is not None
+        assert contractor_result.data.rows_count == 1
+        assert contractor_result.data.data[0]["contractors.dept_id"] is None
+        
+    finally:
+        cleanup_test_data()
+
+
+def test_delete_foreign_key_recursive_cascade():
+    cleanup_test_data()
+    processor, storage = setup_minimal_test_environment()
+    try:
+        processor.execute_query("CREATE TABLE departments (id INT PRIMARY KEY, name VARCHAR(100))")
+        processor.execute_query("INSERT INTO departments (id, name) VALUES (1, 'Engineering')")
+        
+        processor.execute_query("CREATE TABLE teams (id INT PRIMARY KEY, name VARCHAR(100), dept_id INT REFERENCES departments(id) ON DELETE CASCADE)")
+        processor.execute_query("INSERT INTO teams (id, name, dept_id) VALUES (1, 'Backend', 1)")
+        
+        processor.execute_query("CREATE TABLE projects (id INT PRIMARY KEY, name VARCHAR(100), team_id INT REFERENCES teams(id) ON DELETE CASCADE)")
+        processor.execute_query("INSERT INTO projects (id, name, team_id) VALUES (1, 'API', 1)")
+        
+        processor.execute_query("CREATE TABLE tasks (id INT PRIMARY KEY, title VARCHAR(100), project_id INT REFERENCES projects(id) ON DELETE CASCADE)")
+        processor.execute_query("INSERT INTO tasks (id, title, project_id) VALUES (1, 'Design', 1)")
+        
+        # Delete department - should cascade through all levels
+        processor.execute_query("DELETE FROM departments WHERE id = 1")
+        
+        # Verify all related records are deleted
+        dept_result = processor.execute_query("SELECT * FROM departments WHERE id = 1")
+        assert dept_result.data is not None
+        assert dept_result.data.rows_count == 0
+        
+        teams_result = processor.execute_query("SELECT * FROM teams WHERE id = 1")
+        assert teams_result.data is not None
+        assert teams_result.data.rows_count == 0
+        
+        projects_result = processor.execute_query("SELECT * FROM projects WHERE id = 1")
+        assert projects_result.data is not None
+        assert projects_result.data.rows_count == 0
+        
+        tasks_result = processor.execute_query("SELECT * FROM tasks WHERE id = 1")
+        assert tasks_result.data is not None
+        assert tasks_result.data.rows_count == 0
+        
+    finally:
+        cleanup_test_data()
+
+
 if __name__ == "__main__":
     test_execute_query_valid_select()
     test_execute_query_with_where_clause()
@@ -933,5 +1245,17 @@ if __name__ == "__main__":
     test_update_foreign_key_chained_references()
     test_update_foreign_key_non_existent_value()
     test_update_foreign_key_null_values()
+    
+    # Foreign Key Recursive UPDATE Action Tests
+    test_update_foreign_key_recursive_cascade()
+    test_update_foreign_key_recursive_set_null()
+    
+    # Foreign Key DELETE Action Tests
+    test_delete_foreign_key_cascade()
+    test_delete_foreign_key_restrict()
+    test_delete_foreign_key_set_null()
+    test_delete_foreign_key_no_action()
+    test_delete_foreign_key_mixed_actions()
+    test_delete_foreign_key_recursive_cascade()
     
     print("All QueryProcessor execute_query tests passed!")
