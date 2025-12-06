@@ -60,12 +60,18 @@ class CandidateGenerator:
         return plan
 
     def _generate_small_tables_first_plan(self, tree: QueryTree) -> Optional[QueryTree]:
+        # Skip this optimization if there are JOIN conditions
+        # Reordering joins with conditions requires complex analysis
+        join_conditions = self._extract_join_conditions(tree)
+        if join_conditions:
+            return None
+
         relations = self._extract_relations(tree)
         if len(relations) < 2:
             return None
 
         sorted_relations = sorted(relations, key=lambda r: self._get_table_cardinality(r))
-        return self._build_left_deep_tree(sorted_relations)
+        return self._build_left_deep_tree(sorted_relations, [])
 
     def _generate_selective_filters_first_plan(self, tree: QueryTree) -> Optional[QueryTree]:
         return self._apply_selection_pushdown(tree)
@@ -125,6 +131,19 @@ class CandidateGenerator:
         traverse(tree)
         return relations
 
+    def _extract_join_conditions(self, tree: QueryTree) -> List[str]:
+        """Extract all JOIN conditions from the query tree."""
+        conditions = []
+
+        def traverse(node):
+            if node.type == QueryNodeType.JOIN and node.value:
+                conditions.append(node.value)
+            for child in node.children:
+                traverse(child)
+
+        traverse(tree)
+        return conditions
+
     def _get_table_cardinality(self, table_name: str) -> int:
         try:
             stats = self._storage_manager.get_stats(table_name)
@@ -132,9 +151,12 @@ class CandidateGenerator:
         except Exception:
             return 1000
 
-    def _build_left_deep_tree(self, relations: List[str]) -> Optional[QueryTree]:
+    def _build_left_deep_tree(self, relations: List[str], join_conditions: List[str] = None) -> Optional[QueryTree]:
         if not relations:
             return None
+
+        if join_conditions is None:
+            join_conditions = []
 
         current = QueryTree(
             type=QueryNodeType.TABLE,
@@ -149,9 +171,20 @@ class CandidateGenerator:
                 children=[]
             )
 
+            # Find matching condition for this join
+            condition = ""
+            if join_conditions:
+                # Try to find a condition that relates current tables
+                for cond in join_conditions:
+                    # Simple heuristic: use first available condition
+                    # A more sophisticated approach would match tables in condition
+                    if cond:
+                        condition = cond
+                        break
+
             current = QueryTree(
                 type=QueryNodeType.JOIN,
-                value="",
+                value=condition,
                 children=[current, right]
             )
 
