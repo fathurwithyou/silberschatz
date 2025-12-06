@@ -492,7 +492,7 @@ class SQLParser:
     
     def _parse_term(self) -> None:
         """
-        <term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> | LIKE <factor> ]
+        <term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> ]
         <comparison_operator> ::= '=' | '!=' | '<' | '>' | '<=' | '>='
         """
         # Handle NOT
@@ -503,9 +503,6 @@ class SQLParser:
         
         # Handle comparison operators
         if self._check_comparison_operator():
-            self._advance()
-            self._parse_factor()
-        elif self._check(TokenType.LIKE):
             self._advance()
             self._parse_factor()
     

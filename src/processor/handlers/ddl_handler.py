@@ -121,8 +121,12 @@ class DDLHandler:
                 raise ValueError(f"Duplicate column name '{col.name}' in table '{table_name}'")
             seen_columns.add(col.name)
         
-        # Set primary key (use first PRIMARY KEY column found, or None)
-        primary_key = primary_key_columns[0] if primary_key_columns else None
+        if len(primary_key_columns) == 0:
+            raise ValueError(f"Table '{table_name}' must have one PRIMARY KEY column")
+        elif len(primary_key_columns) > 1:
+            raise ValueError(f"Only one PRIMARY KEY is supported per table '{table_name}'")
+        
+        primary_key = primary_key_columns[0]
         
         return TableSchema(
             table_name=table_name,
