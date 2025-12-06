@@ -12,7 +12,8 @@ class ScanOperator:
     def execute(self, table_name: str, tx_id: int) -> Rows:
         table_name, table_alias = self._parse_table_name_and_alias(table_name)
         table_schema = self.storage_manager.get_table_schema(table_name)
-        if not table_schema:
+
+        if table_name not in self.storage_manager.list_tables() or table_schema is None:
             raise ValueError(f"Table '{table_name}' does not exist")
         table_schema.table_name = table_alias
         
