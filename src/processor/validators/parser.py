@@ -39,7 +39,7 @@ class SQLParser:
         """
         <statement> ::= <select_statement> | <insert_statement> | <update_statement> | 
                        <delete_statement> | <create_statement> | <drop_statement> | 
-                       <begin_statement> | <commit_statement>
+                       <begin_statement> | <commit_statement> | <abort_statement>
         """
         if not self.current_token:
             raise ParseError("empty query")
@@ -62,6 +62,8 @@ class SQLParser:
             self._parse_begin_statement()
         elif token_type == TokenType.COMMIT:
             self._parse_commit_statement()
+        elif token_type == TokenType.ABORT:
+            self._parse_abort_statement()
         else:
             raise ParseError(f"syntax error", self.current_token)
     
@@ -215,7 +217,7 @@ class SQLParser:
         <insert_statement> ::= INSERT INTO IDENTIFIER [ '(' <column_list> ')' ] 
                               VALUES '(' <value_list> ')'
         <column_list> ::= IDENTIFIER { ',' IDENTIFIER }
-        <value_list> ::= <expression> { ',' <expression> }
+        <value_list> ::= <factor> { ',' <factor> }
         """
         self._expect(TokenType.INSERT)
         self._expect(TokenType.INTO)
@@ -235,11 +237,11 @@ class SQLParser:
         # VALUES clause
         self._expect(TokenType.VALUES)
         self._expect(TokenType.LEFT_PAREN)
-        self._parse_expression()
+        self._parse_factor()
         
         while self._check(TokenType.COMMA):
             self._advance()
-            self._parse_expression()
+            self._parse_factor()
         
         self._expect(TokenType.RIGHT_PAREN)
     
@@ -283,33 +285,180 @@ class SQLParser:
     def _parse_create_statement(self) -> None:
         """
         <create_statement> ::= CREATE TABLE IDENTIFIER '(' <column_definition_list> ')'
+                             | CREATE INDEX ON IDENTIFIER '(' IDENTIFIER ')' [ USING IDENTIFIER ]
         <column_definition_list> ::= <column_definition> { ',' <column_definition> }
-        <column_definition> ::= IDENTIFIER IDENTIFIER
         """
         self._expect(TokenType.CREATE)
+        
+        if self._check(TokenType.INDEX):
+            self._parse_create_index()
+        elif self._check(TokenType.TABLE):
+            self._parse_create_table()
+        else:
+            raise ParseError("Expected TABLE or INDEX after CREATE", self.current_token)
+    
+    def _parse_create_table(self) -> None:
+        """Parse CREATE TABLE statement"""
         self._expect(TokenType.TABLE)
         self._expect(TokenType.IDENTIFIER)
         
         self._expect(TokenType.LEFT_PAREN)
         
-        # Column definitions
-        self._expect(TokenType.IDENTIFIER)  # column name
-        self._expect(TokenType.IDENTIFIER)  # data type
+        self._parse_column_definition()
         
         while self._check(TokenType.COMMA):
             self._advance()
-            self._expect(TokenType.IDENTIFIER)  # column name
-            self._expect(TokenType.IDENTIFIER)  # data type
+            self._parse_column_definition()
         
         self._expect(TokenType.RIGHT_PAREN)
     
+    def _parse_create_index(self) -> None:
+        """
+        Parse CREATE INDEX statement
+        <create_index> ::= CREATE INDEX ON IDENTIFIER '(' IDENTIFIER ')' [ USING IDENTIFIER ]
+        """
+        self._expect(TokenType.INDEX)
+        self._expect(TokenType.ON)
+        self._expect(TokenType.IDENTIFIER)  # table name
+        self._expect(TokenType.LEFT_PAREN)
+        self._expect(TokenType.IDENTIFIER)  # column name
+        self._expect(TokenType.RIGHT_PAREN)
+        
+        if self._check(TokenType.USING):
+            self._advance()
+            self._expect(TokenType.IDENTIFIER)
+        
+    def _parse_column_definition(self) -> None:
+        """
+        <column_definition> ::= IDENTIFIER <data_type> [<column_constraints>]
+        """
+        self._expect(TokenType.IDENTIFIER)
+        self._parse_data_type()
+        self._parse_column_constraints()
+    
+    def _parse_data_type(self) -> None:
+        """
+        <data_type> ::= INTEGER | VARCHAR '(' NUMBER ')' | CHAR '(' NUMBER ')' | FLOAT | INT
+        """
+        if (self._check(TokenType.INTEGER) or self._check(TokenType.INT) or 
+            self._check(TokenType.FLOAT)):
+            self._advance()
+        elif (self._check(TokenType.VARCHAR) or self._check(TokenType.CHAR)):
+            self._advance()
+            self._expect(TokenType.LEFT_PAREN)
+            self._expect(TokenType.NUMBER_LITERAL)
+            self._expect(TokenType.RIGHT_PAREN)
+        
+    
+    def _parse_column_constraints(self) -> None:
+        """
+        <column_constraints> ::= {<constraint>}
+        <constraint> ::= PRIMARY KEY | NOT NULL | NULL | REFERENCES <table_ref> [<fk_actions>]
+        <table_ref> ::= IDENTIFIER '(' IDENTIFIER ')'
+        """
+        while (self._check(TokenType.PRIMARY) or self._check(TokenType.NOT) or 
+               self._check(TokenType.NULL) or self._check(TokenType.REFERENCES)):
+            
+            if self._check(TokenType.PRIMARY):
+                # PRIMARY KEY constraint
+                self._advance()
+                self._expect(TokenType.KEY)
+            elif self._check(TokenType.NOT):
+                # NOT NULL constraint
+                self._advance()
+                self._expect(TokenType.NULL)
+            elif self._check(TokenType.NULL):
+                # NULL constraint
+                self._advance()
+            elif self._check(TokenType.REFERENCES):
+                # REFERENCES constraint (foreign key)
+                self._advance()
+                self._expect(TokenType.IDENTIFIER)
+                self._expect(TokenType.LEFT_PAREN)
+                self._expect(TokenType.IDENTIFIER)
+                self._expect(TokenType.RIGHT_PAREN)
+                
+                # Parse optional foreign key actions
+                self._parse_foreign_key_actions()
+
+    def _parse_foreign_key_actions(self) -> None:
+        """
+        <fk_actions> ::= [ON DELETE <action>] [ON UPDATE <action>]
+        <action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
+        """
+        # ON DELETE action
+        if self._check(TokenType.ON):
+            self._advance()
+            if self._check(TokenType.DELETE):
+                self._advance()
+                self._parse_fk_action()
+            elif self._check(TokenType.UPDATE):
+                # Need to backtrack and let the UPDATE clause handle this
+                self.current -= 1  # Go back one token
+                self.current_token = self.tokens[self.current] if self.current < len(self.tokens) else None
+        
+        # ON UPDATE action
+        if self._check(TokenType.ON):
+            self._advance()
+            if self._check(TokenType.UPDATE):
+                self._advance()
+                self._parse_fk_action()
+
+    def _parse_fk_action(self) -> None:
+        """
+        <action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
+        """
+        if self._check(TokenType.CASCADE):
+            self._advance()
+        elif self._check(TokenType.RESTRICT):
+            self._advance()
+        elif self._check(TokenType.SET):
+            self._advance()
+            self._expect(TokenType.NULL)
+        elif self._check(TokenType.NO):
+            self._advance()
+            self._expect(TokenType.ACTION)
+        else:
+            raise ParseError(f"Expected foreign key action (CASCADE, RESTRICT, SET NULL, NO ACTION)", self.current_token)
+
+    
     def _parse_drop_statement(self) -> None:
         """
-        <drop_statement> ::= DROP TABLE IDENTIFIER
+        <drop_statement> ::= DROP TABLE IDENTIFIER [ CASCADE | RESTRICT ]
+                           | DROP INDEX ON IDENTIFIER '(' IDENTIFIER ')'
         """
         self._expect(TokenType.DROP)
+        
+        # Check if it's DROP INDEX or DROP TABLE
+        if self._check(TokenType.INDEX):
+            self._parse_drop_index()
+        elif self._check(TokenType.TABLE):
+            self._parse_drop_table()
+        else:
+            raise ParseError("Expected TABLE or INDEX after DROP", self.current_token)
+    
+    def _parse_drop_table(self) -> None:
+        """Parse DROP TABLE statement"""
         self._expect(TokenType.TABLE)
         self._expect(TokenType.IDENTIFIER)
+
+        if self._check(TokenType.CASCADE) or self._check(TokenType.RESTRICT):
+            self._advance()
+    
+    def _parse_drop_index(self) -> None:
+        """
+        Parse DROP INDEX statement
+        <drop_index> ::= DROP INDEX ON IDENTIFIER '(' IDENTIFIER ')'
+        """
+        self._expect(TokenType.INDEX)
+        self._expect(TokenType.ON)
+        self._expect(TokenType.IDENTIFIER)  # table name
+        self._expect(TokenType.LEFT_PAREN)
+        self._expect(TokenType.IDENTIFIER)  # column name
+        self._expect(TokenType.RIGHT_PAREN)
+        
+        if self._check(TokenType.SEMICOLON):
+            self._advance()
     
     def _parse_begin_statement(self) -> None:
         """
@@ -324,6 +473,12 @@ class SQLParser:
         """
         self._expect(TokenType.COMMIT)
     
+    def _parse_abort_statement(self) -> None:
+        """
+        <abort_statement> ::= ABORT
+        """
+        self._expect(TokenType.ABORT)
+        
     def _parse_expression(self) -> None:
         """
         <expression> ::= <term> { ( AND | OR ) <term> }
@@ -337,7 +492,7 @@ class SQLParser:
     
     def _parse_term(self) -> None:
         """
-        <term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> | LIKE <factor> ]
+        <term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> ]
         <comparison_operator> ::= '=' | '!=' | '<' | '>' | '<=' | '>='
         """
         # Handle NOT
@@ -348,9 +503,6 @@ class SQLParser:
         
         # Handle comparison operators
         if self._check_comparison_operator():
-            self._advance()
-            self._parse_factor()
-        elif self._check(TokenType.LIKE):
             self._advance()
             self._parse_factor()
     

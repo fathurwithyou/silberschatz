@@ -5,7 +5,7 @@
 ```bnf
 <statement> ::= <select_statement> | <insert_statement> | <update_statement> |
                <delete_statement> | <create_statement> | <drop_statement> |
-               <begin_statement> | <commit_statement>
+               <begin_statement> | <commit_statement> | <abort_statement>
 ```
 
 ## SELECT Statement
@@ -40,7 +40,7 @@
 
 <column_list> ::= IDENTIFIER { ',' IDENTIFIER }
 
-<value_list> ::= <expression> { ',' <expression> }
+<value_list> ::= <factor> { ',' <factor> }
 ```
 
 ## UPDATE Statement
@@ -66,7 +66,19 @@
 
 <column_definition_list> ::= <column_definition> { ',' <column_definition> }
 
-<column_definition> ::= IDENTIFIER IDENTIFIER
+<column_definition> ::= IDENTIFIER <data_type> [<column_constraints>]
+
+<data_type> ::= INTEGER | VARCHAR '(' NUMBER ')' | CHAR '(' NUMBER ')' | FLOAT | INT
+
+<column_constraints> ::= {<constraint>}
+
+<constraint> ::= PRIMARY KEY | NOT NULL | NULL | REFERENCES <table_ref> [<fk_actions>]
+
+<table_ref> ::= IDENTIFIER '(' IDENTIFIER ')'
+
+<fk_actions> ::= [ON DELETE <action>] [ON UPDATE <action>]
+
+<action> ::= CASCADE | RESTRICT | SET NULL | NO ACTION
 
 <drop_statement> ::= DROP TABLE IDENTIFIER
 ```
@@ -77,6 +89,8 @@
 <begin_statement> ::= BEGIN TRANSACTION
 
 <commit_statement> ::= COMMIT
+
+<abort_statement> ::= ABORT
 ```
 
 ## Expressions and Terms
@@ -84,7 +98,7 @@
 ```bnf
 <expression> ::= <term> { ( AND | OR ) <term> }
 
-<term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> | LIKE <factor> ]
+<term> ::= [ NOT ] <factor> [ <comparison_operator> <factor> ]
 
 <factor> ::= IDENTIFIER [ '.' IDENTIFIER ] | STRING_LITERAL | NUMBER_LITERAL |
             NULL | '(' <expression> ')' | '*'

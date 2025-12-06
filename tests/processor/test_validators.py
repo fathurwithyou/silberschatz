@@ -99,13 +99,21 @@ def test_ddl_statements():
     """Test DDL statement validation."""
     validator = SyntaxValidator()
     
-    create_query = "CREATE TABLE users (id INT, name VARCHAR)"
+    create_query = "CREATE TABLE users (id INT, name VARCHAR(50))"
     result = validator.validate(create_query)
     assert result.is_valid, f"Query should be valid: {create_query}"
     
     drop_query = "DROP TABLE users"
     result = validator.validate(drop_query)
     assert result.is_valid, f"Query should be valid: {drop_query}"
+
+    cascade_query = "DROP TABLE users CASCADE"
+    result = validator.validate(cascade_query)
+    assert result.is_valid, f"Query should be valid: {cascade_query}"
+
+    restrict_query = "DROP TABLE users RESTRICT"
+    result = validator.validate(restrict_query)
+    assert result.is_valid, f"Query should be valid: {restrict_query}"
 
 
 def test_tcl_statements():

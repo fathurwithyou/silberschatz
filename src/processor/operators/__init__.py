@@ -5,6 +5,7 @@ from .join_operator import JoinOperator
 from .update_operator import UpdateOperator
 from .sort_operator import SortOperator
 from .delete_operator import DeleteOperator
+from .insert_operator import InsertOperator
 # dst
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "UpdateOperator",
     "SortOperator",
     "DeleteOperator",
+    "InsertOperator",
     # dst
     ]

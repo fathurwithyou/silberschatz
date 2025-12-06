@@ -46,3 +46,4 @@ class QueryNodeType(str, Enum):
     # Transaction operations
     BEGIN_TRANSACTION = "begin_transaction"
     COMMIT = "commit"
+    ABORT = "abort"

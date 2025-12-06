@@ -45,6 +45,8 @@ class QueryParser:
             tree = QueryTree(type=QueryNodeType.BEGIN_TRANSACTION, value='', children=[])
         elif statement_type == 'COMMIT':
             tree = QueryTree(type=QueryNodeType.COMMIT, value='', children=[])
+        elif statement_type == 'ABORT':
+            tree = QueryTree(type=QueryNodeType.ABORT, value='', children=[])
         else:
             tree = QueryTree(type=QueryNodeType.UNKNOWN, value=query, children=[])
 
@@ -78,5 +80,7 @@ class QueryParser:
             return 'BEGIN'
         elif query_upper.startswith('COMMIT'):
             return 'COMMIT'
+        elif query_upper.startswith('ABORT'):
+            return 'ABORT'
 
         return 'UNKNOWN'

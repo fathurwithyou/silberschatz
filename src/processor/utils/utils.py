@@ -1,4 +1,7 @@
-from src.core.models import TableSchema, DataType
+from src.core.models import (TableSchema, DataType, 
+                             ColumnDefinition, DataRetrieval, 
+                             Condition, ComparisonOperator)
+from src.core import IStorageManager
 from typing import List, Dict, Any
 
 def get_schema_from_table_name(schemas: List[TableSchema], table_name: str) -> TableSchema:
@@ -73,3 +76,21 @@ def get_column_from_schema(schema: TableSchema, column_name: str):
         if col.name == column_name or column_name.endswith(f".{col.name}"):
             return col
     raise ValueError(f"Column '{column_name}' not found in schema '{schema.table_name}'")
+
+def check_referential_integrity(value: Any, fk_column: ColumnDefinition, sm: IStorageManager):
+    col_name = fk_column.name
+    if fk_column.foreign_key is None:
+        raise ValueError(f"Column '{col_name}' is not a foreign key")
+    
+    if value is None:
+        return True
+    
+    data_retrieval = DataRetrieval(
+        table_name=fk_column.foreign_key.referenced_table,
+        columns=[fk_column.foreign_key.referenced_column],
+        conditions=[Condition(column=fk_column.foreign_key.referenced_column, operator=ComparisonOperator.EQ, value=value)]
+    )
+    result = sm.read_buffer(data_retrieval)
+    
+    return result.rows_count > 0
+    

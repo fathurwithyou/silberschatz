@@ -8,7 +8,8 @@ from .operators import (
     JoinOperator,
     UpdateOperator,
     SortOperator,
-    DeleteOperator
+    DeleteOperator,
+    InsertOperator
 )
 from .validators import SyntaxValidator
 from typing import Optional
@@ -49,7 +50,8 @@ class QueryProcessor(IQueryProcessor):
         self.join_operator = JoinOperator()
         self.update_operator = UpdateOperator(self.ccm, self.storage, self.frm) 
         self.sort_operator = SortOperator()
-        self.delete_operator = DeleteOperator(self.ccm, self.storage)
+        self.delete_operator = DeleteOperator(self.ccm, self.storage, self.frm)
+        self.insert_operator = InsertOperator(self.ccm, self.storage, self.frm)
         # dst
 
     def execute_query(self, query: str) -> ExecutionResult:
@@ -66,8 +68,14 @@ class QueryProcessor(IQueryProcessor):
             error_msg = f"{validated_query.error_message}\n"
             if validated_query.error_position:
                 line, col = validated_query.error_position
-                error_msg += f"LINE {line}: {query}\n"
-                if query:
+                query_lines = query.splitlines()
+                if 0 < line <= len(query_lines):
+                    error_line = query_lines[line - 1]
+                    error_msg += f"LINE {line}: {error_line}\n"
+                    pointer = ' ' * (col + 6) + '^'
+                    error_msg += pointer
+                else:
+                    error_msg += f"LINE {line}: {query}\n"
                     pointer = ' ' * (col + 6) + '^'
                     error_msg += pointer
             raise SyntaxError(f"{error_msg}")
@@ -100,6 +108,9 @@ class QueryProcessor(IQueryProcessor):
             return self.scan_operator.execute(node.value, tx_id)
         
         elif node.type == QueryNodeType.SELECTION:
+            if self._check_index_selection(node):
+                return self.scan_operator.execute(node.children[0].value, tx_id, parent_node=node)
+            
             rows = self.execute(node.children[0], tx_id)
             return self.selection_operator.execute(rows, node.value)
         
@@ -128,8 +139,25 @@ class QueryProcessor(IQueryProcessor):
 
         elif node.type == QueryNodeType.DELETE:
             target_rows = self.execute(node.children[0], tx_id)
-            return self.delete_operator.execute(target_rows)        
-        
+            return self.delete_operator.execute(target_rows, tx_id)  
+
+        elif node.type == QueryNodeType.INSERT:
+            return self.insert_operator.execute(
+                node.children[0].value,
+                node.value,
+                tx_id
+            )   
+        elif node.type == QueryNodeType.LIMIT:
+            rows = self.execute(node.children[0], tx_id)
+            try:
+                limit = int(node.value)
+            except ValueError:
+                raise ValueError(f"Invalid LIMIT value: {node.value}")
+            return Rows(
+                data=rows.data[:limit] if limit is not None else rows.data,
+                rows_count=min(rows.rows_count, limit) if limit is not None else rows.rows_count
+            )
+
         raise ValueError(f"Unknown query type: {node.type}")
     
     def _get_query_type(self, query_tree: QueryTree) -> QueryTypeEnum:
@@ -137,8 +165,8 @@ class QueryProcessor(IQueryProcessor):
         Mengembalikan tipe query berdasarkan pohon query.
         """
         
-        ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE]
-        tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT]
+        ddl_type = [QueryNodeType.CREATE_TABLE, QueryNodeType.DROP_TABLE, QueryNodeType.CREATE_INDEX, QueryNodeType.DROP_INDEX]
+        tcl_type = [QueryNodeType.BEGIN_TRANSACTION, QueryNodeType.COMMIT, QueryNodeType.ABORT]
         if query_tree.type in ddl_type:
             return QueryTypeEnum.DDL
         elif query_tree.type in tcl_type:
@@ -255,7 +283,7 @@ class QueryProcessor(IQueryProcessor):
             for column in schema.columns:
                 column_info = {
                     'Column': column.name,
-                    'Type': column.data_type.name.lower(),
+                    'Type': column.data_type.name.lower() + (f"({column.max_length})" if column.max_length else ""),
                     'Nullable': 'YES' if column.nullable else 'NO',
                 }
                 
@@ -264,6 +292,21 @@ class QueryProcessor(IQueryProcessor):
                     column_info['Key'] = 'PK'
                 else:
                     column_info['Key'] = ''
+                
+                # Add foreign key information
+                if column.foreign_key:
+                    fk = column.foreign_key
+                    fk_info = f"{fk.referenced_table}({fk.referenced_column})"
+                    if fk.on_delete.value != "restrict" or fk.on_update.value != "restrict":
+                        actions = []
+                        if fk.on_delete.value != "restrict":
+                            actions.append(f"ON DELETE {fk.on_delete.value.upper()}")
+                        if fk.on_update.value != "restrict":
+                            actions.append(f"ON UPDATE {fk.on_update.value.upper()}")
+                        fk_info += f" [{', '.join(actions)}]"
+                    column_info['Foreign Key'] = fk_info
+                else:
+                    column_info['Foreign Key'] = ''
                     
                 column_data.append(column_info)
             
@@ -286,3 +329,17 @@ class QueryProcessor(IQueryProcessor):
                 data=None,
                 query=f'\\d {table_name}'
             )
+
+    def _check_index_selection(self, node: QueryTree):
+        # cek apakah kondisi cukup sederhana
+        # yang pake index: 
+        # "column = value", "column {< | <= | > | >=} value"
+        if node.children[0].type != QueryNodeType.TABLE:
+            return False
+        
+        cond_str = node.value.strip()
+        simple_pattern = r'^[a-zA-Z_][a-zA-Z0-9_]*\s*(=|<|<=|>|>=)\s*[\w\'"]+$'
+        if re.match(simple_pattern, cond_str):
+            return True
+        return False
+        
