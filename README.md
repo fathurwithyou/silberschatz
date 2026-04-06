@@ -24,3 +24,10 @@ uv run scripts/seed_sample_data.py
 ```bash
 uv run python -m unittest discover -s tests/optimizer
 ```
+
+## Contributors
+<a href="https://github.com/fathurwithyou/silberschatz/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=fathurwithyou/silberschatz" />
+</a>
+
+Made with [contrib.rocks](https://contrib.rocks).
